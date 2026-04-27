@@ -3,6 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <title>Open Space Duel</title>
     <style>
       body, html {
@@ -30,14 +33,26 @@
         top: 0; left: 0; width: 100%; height: 100%;
         z-index: 10000;
       }
-      canvas {
+      canvas#game-canvas {
         background-color: #000;
         display: block;
-        /* Maintain aspect ratio via JS or CSS */
         max-width: 100%;
         max-height: 100%;
         image-rendering: pixelated;
+        z-index: 5;
+        border: 2px solid #222;
+        box-shadow: 0 0 40px rgba(0,0,0,1);
       }
+      .side-art {
+        position: absolute;
+        top: 0;
+        height: 100%;
+        z-index: 1;
+        pointer-events: none;
+      }
+      #side-art-left { left: 0; }
+      #side-art-right { right: 0; }
+
       #ui-layer {
         position: absolute;
         top: 0;
@@ -45,6 +60,7 @@
         width: 100%;
         height: 100%;
         pointer-events: none;
+        z-index: 10;
       }
       .ui-element {
         pointer-events: auto;
@@ -70,11 +86,13 @@
         filter: drop-shadow(0 0 5px currentColor);
       }
     </style>
-    <script type="module" crossorigin src="/open-space-duel/assets/index-BUSfB8YU.js"></script>
+    <script type="module" crossorigin src="/open-space-duel/assets/index-BEZzDnoa.js"></script>
   </head>
   <body>
     <div id="game-container">
+      <canvas id="side-art-left" class="side-art"></canvas>
       <canvas id="game-canvas"></canvas>
+      <canvas id="side-art-right" class="side-art"></canvas>
       <div id="ui-layer"></div>
     </div>
   </body>

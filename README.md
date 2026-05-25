@@ -13,9 +13,9 @@ Welcome to **Open Space Duel**, the pure browser-based P2P space combat arena. N
 Use the **TUNING** slider to favor **MAX SPEED** (faster acceleration) or **MAX SHIELDS** (higher damage absorption).
 
 ### 3. Game Modes
-*   **Solo Survival:** Face continuous waves of asteroids and hostile NPCs (Saucers and Space Snakes). How long can you survive?
-*   **Local Combat Duel:** Battle a friend on the same computer. Supports split-keyboard or multiple gamepads.
-*   **Combat Duel (Online):** Host a public or private match. Share a link or join via the public list to duel players across the globe via P2P WebRTC.
+*   **Solo Mission:** Face continuous waves of asteroids and hostile NPCs (Saucers and Space Snakes). How long can you survive?
+*   **Local Duel:** Battle a friend on the same computer. Supports split-keyboard or multiple gamepads.
+*   **Online Duel Comms:** Open a public or private duel. Share a link or join via the public list to challenge another pilot across the globe via P2P WebRTC.
 
 ## ⌨️ Desktop Controls
 

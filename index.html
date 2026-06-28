@@ -108,8 +108,65 @@
       input[type='range']:hover {
         filter: drop-shadow(0 0 5px currentColor);
       }
+
+      /* ── Portrait mobile layout ────────────────────────────── */
+      @media (orientation: portrait) and (max-width: 480px) {
+        canvas#game-canvas {
+          width: 100vw;
+          height: 60vh;
+          height: 60dvh;
+          border: none;
+          border-bottom: 2px solid #222;
+        }
+        #game-container {
+          flex-direction: column;
+          justify-content: flex-start;
+        }
+        #ui-layer {
+          font-size: 12px;
+        }
+        #joypad-container {
+          position: relative !important;
+          height: 40vh !important;
+          height: 40dvh !important;
+          top: auto !important;
+          bottom: 0 !important;
+        }
+        .side-art {
+          display: none;
+        }
+        /* Scale down HUD text in portrait */
+        [data-testid="hud"] {
+          font-size: 14px !important;
+        }
+        [data-testid="p1-stats"] {
+          font-size: 11px !important;
+          min-width: 80px !important;
+        }
+        [data-testid="wave-display"] {
+          font-size: 11px !important;
+        }
+        /* Smaller menu cards on mobile */
+        .menu-card h2 {
+          font-size: 16px !important;
+        }
+        .menu-card button {
+          font-size: 10px !important;
+          padding: 6px 10px !important;
+        }
+        .menu-card input,
+        .menu-card select {
+          font-size: 10px !important;
+        }
+      }
+      @media (orientation: landscape) and (max-height: 500px) {
+        canvas#game-canvas {
+          width: min(100vw, calc(100dvh * 4 / 3));
+          height: min(100dvh, calc(100vw * 3 / 4));
+        }
+      }
     </style>
-    <script type="module" crossorigin="" src="/open-space-duel/assets/index-BGmg6-vc.js" integrity="sha384-oHjKjB7BBwxWh4JRKHxX9AZZ0uMZgTUGlQyJezHZHrMT5Ch5U0q7gTmnuyJWg11a"></script>
+    <script type="module" crossorigin="" src="/open-space-duel/assets/index-DSUEcGyW.js" integrity="sha384-RGRstOxNOO9tH7nWPgLMnNpi2UuH3GxGUwVUFNkshmg5NJM4reF4AB2aYIkGsSEB"></script>
   <link rel="manifest" href="/open-space-duel/manifest.webmanifest" integrity="sha384-xr58TtmxL/1z8Xa+vVXyHNd2Khma6/I2ar87dZTwQ5R+Br23nlJI5B/xUgZJ5dEa" crossorigin="anonymous"></head>
   <body>
     <div id="game-container">

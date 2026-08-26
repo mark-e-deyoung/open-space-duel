@@ -4,12 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       candidate_ref:
-        description: Sanitized public candidate ref (for example candidate/2026-08-26)
+        description: Sanitized public candidate ref (for example candidate/ab12cd34)
         required: true
-        default: candidate/latest
         type: string
       browser_iterations:
-        description: Repeated local preview navigations per browser (1-50)
+        description: Repeated exact-artifact navigations per browser (1-50)
         required: true
         default: '6'
         type: string
@@ -18,14 +17,18 @@ permissions:
   contents: read
 
 concurrency:
-  group: public-candidate-lro-${{ inputs.candidate_ref }}
-  cancel-in-progress: true
+  group: public-candidate-lro
+  cancel-in-progress: false
 
 jobs:
   validate-build:
-    name: Verify, audit, lint, typecheck, build
+    name: Verify, audit, lint, typecheck, build once
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    outputs:
+      qualification_class: ${{ steps.package.outputs.qualification_class }}
+      public_candidate_sha: ${{ steps.package.outputs.public_candidate_sha }}
+      bundle_sha256: ${{ steps.package.outputs.bundle_sha256 }}
     steps:
       - name: Checkout public harness
         uses: actions/checkout@v6
@@ -65,9 +68,83 @@ jobs:
       - name: Production build
         working-directory: candidate
         run: npm run build
+      - name: Package deterministic exact build artifact
+        id: package
+        env:
+          CANDIDATE_REF: ${{ inputs.candidate_ref }}
+        run: |
+          set -euo pipefail
+          rm -rf build-artifact
+          mkdir -p build-artifact/site
+          cp -a candidate/dist/. build-artifact/site/
+          cp build-artifact/site/index.html build-artifact/site/404.html
+          touch build-artifact/site/.nojekyll
+
+          if find build-artifact/site -type l -print -quit | grep -q .; then
+            echo 'Build output contains a symlink; refusing to package.' >&2
+            exit 1
+          fi
+          for reserved in .git .github AGENTS.md README.md; do
+            if [ -e "build-artifact/site/$reserved" ]; then
+              echo "Build output attempts to replace public control path: $reserved" >&2
+              exit 1
+            fi
+          done
+
+          tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
+            -C build-artifact/site -cf build-artifact/osd-spa.tar .
+          gzip -n build-artifact/osd-spa.tar
+
+          BUNDLE_SHA=$(sha256sum build-artifact/osd-spa.tar.gz | awk '{print $1}')
+          MANIFEST_SHA=$(sha256sum candidate/PUBLIC-PROJECTION-MANIFEST.json | awk '{print $1}')
+          CANDIDATE_SHA=$(git -C candidate rev-parse HEAD)
+          HARNESS_SHA=$(git -C harness rev-parse HEAD)
+          QUALIFICATION_CLASS=$(node -e "const m=require('./candidate/PUBLIC-PROJECTION-MANIFEST.json'); process.stdout.write(m.qualificationClass)")
+          PROJECTION_POLICY_SHA=$(node -e "const m=require('./candidate/PUBLIC-PROJECTION-MANIFEST.json'); process.stdout.write(m.projectionPolicySha256)")
+          PROMOTION_POLICY_SHA=$(node -e "const m=require('./candidate/PUBLIC-PROJECTION-MANIFEST.json'); process.stdout.write(m.promotionPolicySha256)")
+
+          BUNDLE_SHA="$BUNDLE_SHA" MANIFEST_SHA="$MANIFEST_SHA" CANDIDATE_SHA="$CANDIDATE_SHA" \
+          HARNESS_SHA="$HARNESS_SHA" QUALIFICATION_CLASS="$QUALIFICATION_CLASS" \
+          PROJECTION_POLICY_SHA="$PROJECTION_POLICY_SHA" PROMOTION_POLICY_SHA="$PROMOTION_POLICY_SHA" \
+          CANDIDATE_REF="$CANDIDATE_REF" node <<'NODE'
+          const fs = require('fs');
+          const receipt = {
+            schemaVersion: 1,
+            publicRepository: 'mark-e-deyoung/open-space-duel',
+            publicCandidateRef: process.env.CANDIDATE_REF,
+            publicCandidateSha: process.env.CANDIDATE_SHA,
+            qualificationClass: process.env.QUALIFICATION_CLASS,
+            publicManifestSha256: process.env.MANIFEST_SHA,
+            projectionPolicySha256: process.env.PROJECTION_POLICY_SHA,
+            promotionPolicySha256: process.env.PROMOTION_POLICY_SHA,
+            bundleSha256: process.env.BUNDLE_SHA,
+            publicWorkflowSha: process.env.HARNESS_SHA,
+            workflowName: process.env.GITHUB_WORKFLOW,
+            workflowRunId: Number(process.env.GITHUB_RUN_ID),
+            workflowRunAttempt: Number(process.env.GITHUB_RUN_ATTEMPT),
+          };
+          fs.writeFileSync('build-artifact/PUBLIC-BUILD-RECEIPT.json', `${JSON.stringify(receipt, null, 2)}\n`);
+          NODE
+
+          echo "qualification_class=$QUALIFICATION_CLASS" >> "$GITHUB_OUTPUT"
+          echo "public_candidate_sha=$CANDIDATE_SHA" >> "$GITHUB_OUTPUT"
+          echo "bundle_sha256=$BUNDLE_SHA" >> "$GITHUB_OUTPUT"
+          echo "Built exact artifact $BUNDLE_SHA ($QUALIFICATION_CLASS)"
+      - name: Verify packaged artifact independently
+        run: node harness/.github/public-tests/verify-public-build.mjs build-artifact
+      - name: Upload exact build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: osd-spa-build
+          path: |
+            build-artifact/osd-spa.tar.gz
+            build-artifact/PUBLIC-BUILD-RECEIPT.json
+          if-no-files-found: error
+          retention-days: 14
 
   browser-matrix:
-    name: ${{ matrix.browser }} sanitized-source browser soak
+    name: ${{ matrix.browser }} exact-artifact soak
+    needs: validate-build
     runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
@@ -75,34 +152,25 @@ jobs:
       matrix:
         browser: [chromium, firefox, webkit]
     steps:
-      - name: Checkout public harness
+      - name: Checkout public harness only
         uses: actions/checkout@v6
         with:
           ref: gh-pages
           path: harness
           persist-credentials: false
-      - name: Checkout sanitized candidate
-        uses: actions/checkout@v6
+      - name: Download exact build artifact
+        uses: actions/download-artifact@v8
         with:
-          ref: ${{ inputs.candidate_ref }}
-          path: candidate
-          persist-credentials: false
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: candidate/package-lock.json
-      - name: Independently verify candidate manifest and boundary
-        run: node harness/.github/public-tests/verify-public-candidate.mjs candidate
-      - name: Build sanitized candidate
-        working-directory: candidate
+          name: osd-spa-build
+          path: artifact
+      - name: Verify exact build artifact
+        run: node harness/.github/public-tests/verify-public-build.mjs artifact "${{ needs.validate-build.outputs.qualification_class }}"
+      - name: Prepare exact artifact preview
         run: |
-          npm ci
-          npm run build
-      - name: Start public candidate preview
-        working-directory: candidate
-        run: |
-          npx vite preview --host 127.0.0.1 --port 4173 > /tmp/osd-public-preview.log 2>&1 &
+          set -euo pipefail
+          mkdir -p preview/open-space-duel
+          tar -xzf artifact/osd-spa.tar.gz -C preview/open-space-duel
+          python3 -m http.server 4173 --bind 127.0.0.1 --directory preview > /tmp/osd-public-preview.log 2>&1 &
           echo $! > /tmp/osd-public-preview.pid
           for attempt in $(seq 1 30); do
             if curl --fail --silent --show-error http://127.0.0.1:4173/open-space-duel/ >/dev/null; then
@@ -118,7 +186,7 @@ jobs:
           npm init -y >/dev/null
           npm install --no-save --ignore-scripts @playwright/test@1.59.1
           npx playwright install --with-deps "${{ matrix.browser }}"
-      - name: Exercise locally built sanitized candidate
+      - name: Exercise exact built artifact
         working-directory: harness
         env:
           DEPLOYED_BASE_URL: http://127.0.0.1:4173/open-space-duel/
@@ -133,3 +201,67 @@ jobs:
           if [ -f /tmp/osd-public-preview.pid ]; then
             kill "$(cat /tmp/osd-public-preview.pid)" 2>/dev/null || true
           fi
+
+  deploy-ordinary:
+    name: Deploy exact ordinary artifact
+    needs: [validate-build, browser-matrix]
+    if: needs.validate-build.outputs.qualification_class == 'ordinary'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout trusted public control plane
+        uses: actions/checkout@v6
+        with:
+          ref: gh-pages
+          path: harness
+          persist-credentials: false
+      - name: Download exact tested build artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: osd-spa-build
+          path: artifact
+      - name: Verify exact tested build artifact
+        run: node harness/.github/public-tests/verify-public-build.mjs artifact ordinary
+      - name: Checkout deployment branch
+        uses: actions/checkout@v6
+        with:
+          ref: gh-pages
+          path: deploy
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: true
+      - name: Replace generated site payload with exact artifact
+        run: |
+          set -euo pipefail
+          find deploy -mindepth 1 -maxdepth 1 \
+            ! -name .git ! -name .github ! -name AGENTS.md ! -name README.md \
+            -exec rm -rf {} +
+          tar -xzf artifact/osd-spa.tar.gz -C deploy
+      - name: Commit exact artifact deployment
+        env:
+          CANDIDATE_SHA: ${{ needs.validate-build.outputs.public_candidate_sha }}
+          BUNDLE_SHA: ${{ needs.validate-build.outputs.bundle_sha256 }}
+        run: |
+          set -euo pipefail
+          cd deploy
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'Deployment payload already matches this exact artifact.'
+            exit 0
+          fi
+          git commit -m "deploy: candidate ${CANDIDATE_SHA} artifact ${BUNDLE_SHA}"
+          git push origin HEAD:gh-pages
+
+  private-qualification-required:
+    name: Private qualification required
+    needs: [validate-build, browser-matrix]
+    if: needs.validate-build.outputs.qualification_class == 'private-required'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Stop before deployment
+        run: |
+          echo 'Candidate passed public build/browser validation but is classified private-required.'
+          echo 'No deployment is authorized until a hash-bound private V4 verdict exists.'

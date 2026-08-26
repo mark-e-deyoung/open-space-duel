@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { lstatSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 
 function fail(message) {
@@ -15,7 +15,7 @@ function walk(root, dir = root, out = []) {
   for (const name of readdirSync(dir).sort()) {
     if (name === '.git' || name === 'node_modules' || name === 'dist') continue;
     const path = join(dir, name);
-    const stat = statSync(path, { throwIfNoEntry: true });
+    const stat = lstatSync(path);
     if (stat.isSymbolicLink()) fail(`symlink is not allowed: ${relative(root, path)}`);
     if (stat.isDirectory()) walk(root, path, out);
     else if (stat.isFile()) out.push(relative(root, path).split(sep).join('/'));

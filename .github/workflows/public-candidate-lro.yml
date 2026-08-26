@@ -12,6 +12,10 @@ on:
         required: true
         default: '6'
         type: string
+  push:
+    branches: [gh-pages]
+    paths:
+      - .github/candidate-request.json
 
 permissions:
   contents: read
@@ -21,8 +25,47 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  resolve-request:
+    name: Resolve immutable candidate request
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      candidate_ref: ${{ steps.resolve.outputs.candidate_ref }}
+      browser_iterations: ${{ steps.resolve.outputs.browser_iterations }}
+    steps:
+      - name: Checkout trusted public control plane
+        uses: actions/checkout@v6
+        with:
+          ref: gh-pages
+          persist-credentials: false
+      - name: Resolve request
+        id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_CANDIDATE_REF: ${{ inputs.candidate_ref }}
+          INPUT_BROWSER_ITERATIONS: ${{ inputs.browser_iterations }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = workflow_dispatch ]; then
+            CANDIDATE_REF="$INPUT_CANDIDATE_REF"
+            ITERATIONS="${INPUT_BROWSER_ITERATIONS:-6}"
+          else
+            CANDIDATE_REF=$(node -e "const r=require('./.github/candidate-request.json'); process.stdout.write(r.candidateRef || '')")
+            ITERATIONS=$(node -e "const r=require('./.github/candidate-request.json'); process.stdout.write(String(r.browserIterations || 6))")
+          fi
+          case "$CANDIDATE_REF" in candidate/*) ;; *) echo 'candidate_ref must start with candidate/' >&2; exit 1;; esac
+          case "$ITERATIONS" in ''|*[!0-9]*) echo 'browser_iterations must be an integer' >&2; exit 1;; esac
+          if [ "$ITERATIONS" -lt 1 ] || [ "$ITERATIONS" -gt 50 ]; then
+            echo 'browser_iterations must be 1-50' >&2
+            exit 1
+          fi
+          echo "candidate_ref=$CANDIDATE_REF" >> "$GITHUB_OUTPUT"
+          echo "browser_iterations=$ITERATIONS" >> "$GITHUB_OUTPUT"
+          echo "Resolved $CANDIDATE_REF with $ITERATIONS browser iterations"
+
   validate-build:
     name: Verify, audit, lint, typecheck, build once
+    needs: resolve-request
     runs-on: ubuntu-latest
     timeout-minutes: 90
     outputs:
@@ -39,7 +82,7 @@ jobs:
       - name: Checkout sanitized candidate
         uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.candidate_ref }}
+          ref: ${{ needs.resolve-request.outputs.candidate_ref }}
           path: candidate
           persist-credentials: false
       - uses: actions/setup-node@v6
@@ -71,7 +114,7 @@ jobs:
       - name: Package deterministic exact build artifact
         id: package
         env:
-          CANDIDATE_REF: ${{ inputs.candidate_ref }}
+          CANDIDATE_REF: ${{ needs.resolve-request.outputs.candidate_ref }}
         run: |
           set -euo pipefail
           rm -rf build-artifact
@@ -144,7 +187,7 @@ jobs:
 
   browser-matrix:
     name: ${{ matrix.browser }} exact-artifact soak
-    needs: validate-build
+    needs: [resolve-request, validate-build]
     runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
@@ -190,7 +233,7 @@ jobs:
         working-directory: harness
         env:
           DEPLOYED_BASE_URL: http://127.0.0.1:4173/open-space-duel/
-          SOAK_ITERATIONS: ${{ inputs.browser_iterations }}
+          SOAK_ITERATIONS: ${{ needs.resolve-request.outputs.browser_iterations }}
         run: >-
           npx playwright test
           --config=.github/public-tests/playwright.config.cjs
@@ -204,7 +247,7 @@ jobs:
 
   deploy-ordinary:
     name: Deploy exact ordinary artifact
-    needs: [validate-build, browser-matrix]
+    needs: [resolve-request, validate-build, browser-matrix]
     if: needs.validate-build.outputs.qualification_class == 'ordinary'
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -268,7 +311,7 @@ jobs:
 
   private-qualification-required:
     name: Private qualification required
-    needs: [validate-build, browser-matrix]
+    needs: [resolve-request, validate-build, browser-matrix]
     if: needs.validate-build.outputs.qualification_class == 'private-required'
     runs-on: ubuntu-latest
     steps:

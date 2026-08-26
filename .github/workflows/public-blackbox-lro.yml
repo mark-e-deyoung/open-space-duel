@@ -1,0 +1,52 @@
+name: Public black-box LRO
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: Public deployment URL to exercise
+        required: true
+        default: https://mark-e-deyoung.github.io/open-space-duel/
+        type: string
+      iterations:
+        description: Repeated navigations per browser (1-100)
+        required: true
+        default: '12'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-blackbox-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  browser-soak:
+    name: ${{ matrix.browser }} black-box soak
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Install public test harness
+        run: |
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.59.1
+          npx playwright install --with-deps "${{ matrix.browser }}"
+      - name: Run repeated public deployment smoke
+        env:
+          DEPLOYED_BASE_URL: ${{ inputs.target_url }}
+          SOAK_ITERATIONS: ${{ inputs.iterations }}
+        run: >-
+          npx playwright test
+          --config=.github/public-tests/playwright.config.cjs
+          --project="${{ matrix.browser }}"

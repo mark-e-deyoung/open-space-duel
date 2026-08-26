@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "candidateRef": "candidate/rehearsal-negative-20260826-01",
+  "candidateRef": "candidate/rehearsal-positive-public-fixture-20260826-01",
   "browserIterations": 1,
-  "requestSequence": 2,
-  "purpose": "negative-control: verify release-control triggers fail closed without touching Pages source"
+  "requestSequence": 3,
+  "purpose": "positive-control: exercise public build, exact artifact, browser matrix, and private-required stop"
 }

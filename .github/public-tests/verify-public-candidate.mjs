@@ -7,8 +7,9 @@ function fail(message) {
   process.exit(1);
 }
 
-function sha256(data) {
-  return createHash('sha256').update(data).digest('hex');
+function gitBlobSha1(data) {
+  const header = Buffer.from(`blob ${data.length}\0`);
+  return createHash('sha1').update(header).update(data).digest('hex');
 }
 
 function walk(root, dir = root, out = []) {
@@ -28,7 +29,7 @@ const candidateRoot = resolve(process.argv[2] || 'candidate');
 const manifestPath = join(candidateRoot, 'PUBLIC-PROJECTION-MANIFEST.json');
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
 
-if (manifest.schemaVersion !== 1) fail(`unsupported manifest schemaVersion ${manifest.schemaVersion}`);
+if (manifest.schemaVersion !== 2) fail(`unsupported manifest schemaVersion ${manifest.schemaVersion}`);
 if (manifest.publicRepository !== 'mark-e-deyoung/open-space-duel') {
   fail(`unexpected publicRepository ${JSON.stringify(manifest.publicRepository)}`);
 }
@@ -45,7 +46,14 @@ if (!Array.isArray(manifest.files) || manifest.files.length === 0) fail('manifes
 
 const declared = new Map();
 for (const item of manifest.files) {
-  if (!item || typeof item.path !== 'string' || typeof item.sha256 !== 'string') fail('malformed manifest file entry');
+  if (
+    !item ||
+    typeof item.path !== 'string' ||
+    typeof item.gitBlobSha1 !== 'string' ||
+    !/^[a-f0-9]{40}$/.test(item.gitBlobSha1) ||
+    !Number.isInteger(item.bytes) ||
+    item.bytes < 0
+  ) fail('malformed manifest file entry');
   if (declared.has(item.path)) fail(`duplicate manifest path ${item.path}`);
   declared.set(item.path, item);
 }
@@ -75,8 +83,8 @@ const highConfidenceSecrets = [
 
 for (const [path, item] of declared) {
   const data = readFileSync(join(candidateRoot, path));
-  if (sha256(data) !== item.sha256) fail(`digest mismatch for ${path}`);
-  if (Number.isInteger(item.bytes) && data.length !== item.bytes) fail(`size mismatch for ${path}`);
+  if (gitBlobSha1(data) !== item.gitBlobSha1) fail(`Git blob identity mismatch for ${path}`);
+  if (data.length !== item.bytes) fail(`size mismatch for ${path}`);
   if (data.includes(0)) continue;
   const text = data.toString('utf8');
   for (const needle of forbiddenText) {

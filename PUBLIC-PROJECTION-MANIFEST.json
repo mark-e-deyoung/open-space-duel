@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 2,
+  "profile": "osd-public-lro-positive-control",
+  "publicRepository": "mark-e-deyoung/open-space-duel",
+  "qualificationClass": "private-required",
+  "projectionPolicySha256": "1eb823f41a87316684038e38c630bdfcc11613f580f11a22c484873f7ae1c291",
+  "promotionPolicySha256": "5e8e605568e5f8d5fc51dc4d2bf6a8317e47ea824dd42b2248596f932e087c11",
+  "positiveControl": {
+    "purpose": "exercise public build, exact-artifact packaging, browser matrix, and private-required stop using already-public OSD bytes",
+    "nonPromotable": true
+  },
+  "files": [
+    {"path":"CONTROL-PROJECTION-POLICY.json","gitBlobSha1":"ff49f3cc56a72c6e18183b9f4c323527f96e4f6d","bytes":301},
+    {"path":"CONTROL-PROMOTION-POLICY.json","gitBlobSha1":"fb460e51ccf8aa9bbf912ad4b1e2caf259a3fbec","bytes":187},
+    {"path":"build.mjs","gitBlobSha1":"3c1652f39010de37a622589bfcc7f495d001af13","bytes":219},
+    {"path":"package-lock.json","gitBlobSha1":"efb1c4cf7058855ffd7173cce303f5ab828b4d49","bytes":304},
+    {"path":"package.json","gitBlobSha1":"392ca8c82f458cf32494d9768ad42c2550320725","bytes":729},
+    {"path":"fixture/assets/index-BGmg6-vc.js","gitBlobSha1":"0f6e7742fc78028aea75e0d3bc5cf0a2966c7e73","bytes":344049},
+    {"path":"fixture/assets/index-BanDEFpx.js","gitBlobSha1":"4126429db9cb3cf4eef00b5121ffb29bf78ccf20","bytes":343423},
+    {"path":"fixture/assets/index-DSUEcGyW.js","gitBlobSha1":"2f6d47ed5daba0d736fe0489bb6840fc17ea8fa8","bytes":346508},
+    {"path":"fixture/assets/tournamentUI-B0d-WYgL.js","gitBlobSha1":"74637514fbaff41899161cf9bff181dfc81ef3cf","bytes":3180},
+    {"path":"fixture/assets/tournamentUI-CNeFjdLI.js","gitBlobSha1":"2bec4c219d39b5dbf729551f3530e80d781af892","bytes":3698},
+    {"path":"fixture/assets/tournamentUI-t7c5k3Bc.js","gitBlobSha1":"933a87595c1a7ae8299f36570a93447bdfa0c04b","bytes":3696},
+    {"path":"fixture/assets/workbox-window.prod.es5-BqEJf4Xk.js","gitBlobSha1":"3b0621f6e2a31f240096dc8b06efa8c75c01a30a","bytes":5706},
+    {"path":"fixture/favicon.ico","gitBlobSha1":"24bf017e97a16d9e9cec3aa578cfb5f400036d82","bytes":297},
+    {"path":"fixture/icon-192.png","gitBlobSha1":"542891aaf6df30e30116f070cf7520940d9c8c06","bytes":318},
+    {"path":"fixture/icon-512.png","gitBlobSha1":"1e3b0a3b35bd713367d5bc4720eea0d56886cf20","bytes":305},
+    {"path":"fixture/index.html","gitBlobSha1":"ded2462cad0e82b1728950decfd3c66d4a38478e","bytes":5844},
+    {"path":"fixture/manifest.webmanifest","gitBlobSha1":"6c9b315e486f90b2403e1c3e91dc3917ed3feddf","bytes":268},
+    {"path":"fixture/registerSW.js","gitBlobSha1":"a25d5a49af12cb95be9df5aa4980bc03126269e8","bytes":166},
+    {"path":"fixture/sw.js","gitBlobSha1":"b9b2ff32361516a5c245591b6c6d0667a2b3ebfd","bytes":1406},
+    {"path":"fixture/version.json","gitBlobSha1":"085e3baf73f2999698e81f8f4073c1a7139d7dc7","bytes":24},
+    {"path":"fixture/workbox-12bd46aa.js","gitBlobSha1":"cfe5d90e72a3a741b7bd79ad7088d9936dbbd1d2","bytes":22042}
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "name": "osd-public-lro-positive-control",
+  "version": "1.0.0",
+  "description": "Public-only positive control for Open Space Duel release pipeline",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "node -e \"console.log('positive-control: no TypeScript source')\"",
+    "lint": "node -e \"console.log('positive-control: public fixture only')\""
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mark-e-deyoung/open-space-duel.git"
+  },
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/mark-e-deyoung/open-space-duel/issues"
+  },
+  "homepage": "https://github.com/mark-e-deyoung/open-space-duel#readme",
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

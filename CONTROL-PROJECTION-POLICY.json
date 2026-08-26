@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "profile": "osd-public-lro-positive-control",
+  "purpose": "Exercise the public execution plane using only bytes already published by the public repository.",
+  "sourceClass": "V0/V1 already-public fixture",
+  "privateSourceRequired": false,
+  "nonPromotableControl": true
+}

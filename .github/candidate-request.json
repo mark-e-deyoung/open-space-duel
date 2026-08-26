@@ -1,7 +1,0 @@
-{
-  "schemaVersion": 1,
-  "candidateRef": "candidate/rehearsal-negative-20260826-01",
-  "browserIterations": 1,
-  "requestSequence": 2,
-  "purpose": "negative-control: verify release-control triggers fail closed without touching Pages source"
-}

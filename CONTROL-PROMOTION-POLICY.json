@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "qualificationClass": "private-required",
+  "purpose": "Force a successful public positive control to stop before deployment.",
+  "nonPromotableControl": true
+}

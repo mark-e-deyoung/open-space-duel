@@ -32,6 +32,15 @@ if (manifest.schemaVersion !== 1) fail(`unsupported manifest schemaVersion ${man
 if (manifest.publicRepository !== 'mark-e-deyoung/open-space-duel') {
   fail(`unexpected publicRepository ${JSON.stringify(manifest.publicRepository)}`);
 }
+if (!['ordinary', 'private-required'].includes(manifest.qualificationClass)) {
+  fail(`unexpected qualificationClass ${JSON.stringify(manifest.qualificationClass)}`);
+}
+for (const [name, value] of [
+  ['projectionPolicySha256', manifest.projectionPolicySha256],
+  ['promotionPolicySha256', manifest.promotionPolicySha256],
+]) {
+  if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)) fail(`invalid ${name}`);
+}
 if (!Array.isArray(manifest.files) || manifest.files.length === 0) fail('manifest contains no projected files');
 
 const declared = new Map();
@@ -85,4 +94,6 @@ if (pkg.repository?.url !== 'git+https://github.com/mark-e-deyoung/open-space-du
 if (pkg.license !== 'ISC') fail(`unexpected package license ${JSON.stringify(pkg.license)}`);
 
 console.log(`Verified sanitized public candidate: ${declared.size} projected files`);
+console.log(`Qualification class: ${manifest.qualificationClass}`);
 console.log(`Projection policy SHA-256: ${manifest.projectionPolicySha256}`);
+console.log(`Promotion policy SHA-256: ${manifest.promotionPolicySha256}`);

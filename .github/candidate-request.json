@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "candidateRef": "candidate/rehearsal-negative-20260826-01",
+  "browserIterations": 1,
+  "purpose": "negative-control: prove public candidate validation fails closed before candidate code execution"
+}

@@ -210,6 +210,7 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: write
+      pages: write
     steps:
       - name: Checkout trusted public control plane
         uses: actions/checkout@v6
@@ -250,10 +251,20 @@ jobs:
           git add -A
           if git diff --cached --quiet; then
             echo 'Deployment payload already matches this exact artifact.'
-            exit 0
+          else
+            git commit -m "deploy: candidate ${CANDIDATE_SHA} artifact ${BUNDLE_SHA}"
+            git push origin HEAD:gh-pages
           fi
-          git commit -m "deploy: candidate ${CANDIDATE_SHA} artifact ${BUNDLE_SHA}"
-          git push origin HEAD:gh-pages
+      - name: Request GitHub Pages build from updated source branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${GITHUB_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/pages/builds"
 
   private-qualification-required:
     name: Private qualification required

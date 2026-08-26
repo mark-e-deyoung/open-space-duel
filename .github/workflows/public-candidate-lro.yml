@@ -13,7 +13,7 @@ on:
         default: '6'
         type: string
   push:
-    branches: [gh-pages]
+    branches: [release-control]
     paths:
       - .github/candidate-request.json
 
@@ -36,7 +36,7 @@ jobs:
       - name: Checkout trusted public control plane
         uses: actions/checkout@v6
         with:
-          ref: gh-pages
+          ref: release-control
           persist-credentials: false
       - name: Resolve request
         id: resolve
@@ -76,7 +76,7 @@ jobs:
       - name: Checkout public harness
         uses: actions/checkout@v6
         with:
-          ref: gh-pages
+          ref: release-control
           path: harness
           persist-credentials: false
       - name: Checkout sanitized candidate
@@ -198,7 +198,7 @@ jobs:
       - name: Checkout public harness only
         uses: actions/checkout@v6
         with:
-          ref: gh-pages
+          ref: release-control
           path: harness
           persist-credentials: false
       - name: Download exact build artifact
@@ -258,7 +258,7 @@ jobs:
       - name: Checkout trusted public control plane
         uses: actions/checkout@v6
         with:
-          ref: gh-pages
+          ref: release-control
           path: harness
           persist-credentials: false
       - name: Download exact tested build artifact

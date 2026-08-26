@@ -1,5 +1,7 @@
 # 🚀 Open Space Duel - Gameplay Guide
 
+> **Repository role:** This is the sanitized public published-source/deployment/release plane for Open Space Duel, not the normal product-development authority. Public issues and user reports are welcome, but ordinary product fixes and features originate in the private development authority and arrive here through the governed public projection/release path. Direct public-only fixes require an explicit exception and reconciliation before the next projection.
+
 Welcome to **Open Space Duel**, the pure browser-based P2P space combat arena. No accounts, no installs, just pure vector combat.
 
 ## 🕹️ How to Play

@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 2,
+  "profile": "open-space-duel-spa-public-candidate-negative-control",
+  "publicRepository": "mark-e-deyoung/open-space-duel",
+  "qualificationClass": "private-required",
+  "projectionPolicySha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "promotionPolicySha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "negativeControl": {
+    "purpose": "prove public candidate validation fails closed before candidate code execution",
+    "expectedFailure": "manifest declares missing file src/main.ts"
+  },
+  "files": [
+    {
+      "path": "package.json",
+      "gitBlobSha1": "25c0f84e9c52f4d8ff9d22124f982bbf094ecab0",
+      "bytes": 1442
+    },
+    {
+      "path": "package-lock.json",
+      "gitBlobSha1": "8883ef4dd415c814be17668e825f0313ff14f49f",
+      "bytes": 193
+    },
+    {
+      "path": "src/main.ts",
+      "gitBlobSha1": "0000000000000000000000000000000000000000",
+      "bytes": 1
+    }
+  ]
+}

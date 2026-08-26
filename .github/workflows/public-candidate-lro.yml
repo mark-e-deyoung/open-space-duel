@@ -1,0 +1,135 @@
+name: Public candidate LRO
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_ref:
+        description: Sanitized public candidate ref (for example candidate/2026-08-26)
+        required: true
+        default: candidate/latest
+        type: string
+      browser_iterations:
+        description: Repeated local preview navigations per browser (1-50)
+        required: true
+        default: '6'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-candidate-lro-${{ inputs.candidate_ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-build:
+    name: Verify, audit, lint, typecheck, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout public harness
+        uses: actions/checkout@v6
+        with:
+          ref: gh-pages
+          path: harness
+          persist-credentials: false
+      - name: Checkout sanitized candidate
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.candidate_ref }}
+          path: candidate
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: candidate/package-lock.json
+      - name: Independently verify candidate manifest and boundary
+        run: node harness/.github/public-tests/verify-public-candidate.mjs candidate
+      - name: Install exact candidate dependencies
+        working-directory: candidate
+        run: npm ci
+      - name: Audit shipped dependencies
+        working-directory: candidate
+        run: npm audit --omit=dev --audit-level=moderate
+      - name: Full dependency audit (visibility only)
+        continue-on-error: true
+        working-directory: candidate
+        run: npm audit --audit-level=moderate
+      - name: Lint
+        working-directory: candidate
+        run: npm run lint
+      - name: Typecheck
+        working-directory: candidate
+        run: npm run typecheck
+      - name: Production build
+        working-directory: candidate
+        run: npm run build
+
+  browser-matrix:
+    name: ${{ matrix.browser }} sanitized-source browser soak
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    steps:
+      - name: Checkout public harness
+        uses: actions/checkout@v6
+        with:
+          ref: gh-pages
+          path: harness
+          persist-credentials: false
+      - name: Checkout sanitized candidate
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.candidate_ref }}
+          path: candidate
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: candidate/package-lock.json
+      - name: Independently verify candidate manifest and boundary
+        run: node harness/.github/public-tests/verify-public-candidate.mjs candidate
+      - name: Build sanitized candidate
+        working-directory: candidate
+        run: |
+          npm ci
+          npm run build
+      - name: Start public candidate preview
+        working-directory: candidate
+        run: |
+          npx vite preview --host 127.0.0.1 --port 4173 > /tmp/osd-public-preview.log 2>&1 &
+          echo $! > /tmp/osd-public-preview.pid
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error http://127.0.0.1:4173/open-space-duel/ >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/osd-public-preview.log
+          exit 1
+      - name: Install public browser harness
+        working-directory: harness
+        run: |
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.59.1
+          npx playwright install --with-deps "${{ matrix.browser }}"
+      - name: Exercise locally built sanitized candidate
+        working-directory: harness
+        env:
+          DEPLOYED_BASE_URL: http://127.0.0.1:4173/open-space-duel/
+          SOAK_ITERATIONS: ${{ inputs.browser_iterations }}
+        run: >-
+          npx playwright test
+          --config=.github/public-tests/playwright.config.cjs
+          --project="${{ matrix.browser }}"
+      - name: Stop preview
+        if: always()
+        run: |
+          if [ -f /tmp/osd-public-preview.pid ]; then
+            kill "$(cat /tmp/osd-public-preview.pid)" 2>/dev/null || true
+          fi

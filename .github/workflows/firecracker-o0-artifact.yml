@@ -1,0 +1,120 @@
+name: OSD O0 Public Artifact Placement Probe
+
+on:
+  push:
+    branches:
+      - experiment/firecracker-o0-artifact
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  o0:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - name: Probe released osd-peer image anonymously
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/osd-o0"
+          image=""
+          for tag in v0.1.6 0.1.6 0.1 latest; do
+            candidate="ghcr.io/mark-e-deyoung/osd-peer:$tag"
+            echo "probing $candidate"
+            if docker manifest inspect "$candidate" >"$RUNNER_TEMP/osd-o0/manifest.json" 2>"$RUNNER_TEMP/osd-o0/manifest.err"; then
+              image="$candidate"
+              break
+            fi
+          done
+
+          if [ -n "$image" ]; then
+            docker pull "$image"
+            docker image inspect "$image" > "$RUNNER_TEMP/osd-o0/image-inspect.json"
+            docker create --name osd-o0-extract "$image" >/dev/null
+            docker export osd-o0-extract -o "$RUNNER_TEMP/osd-o0/rootfs.tar"
+            docker rm osd-o0-extract >/dev/null
+            sha256sum "$RUNNER_TEMP/osd-o0/rootfs.tar" > "$RUNNER_TEMP/osd-o0/rootfs.tar.sha256"
+            printf '%s\n' "$image" > "$RUNNER_TEMP/osd-o0/image.txt"
+          else
+            : > "$RUNNER_TEMP/osd-o0/image.txt"
+          fi
+
+      - name: Record KVM and artifact placement receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, platform, subprocess
+          from pathlib import Path
+
+          root=Path(os.environ["RUNNER_TEMP"])/"osd-o0"
+          image=(root/"image.txt").read_text().strip()
+          inspect=None
+          if image and (root/"image-inspect.json").exists():
+              inspect=json.loads((root/"image-inspect.json").read_text())[0]
+
+          kvm={"present":Path("/dev/kvm").exists(),"sudo_callable":False,"api_version":None,"error":None}
+          if kvm["present"]:
+              code=r'''import os,fcntl; fd=os.open("/dev/kvm",os.O_RDWR|os.O_CLOEXEC); print(fcntl.ioctl(fd,0xAE00,0)); os.close(fd)'''
+              cp=subprocess.run(["sudo","-n","python3","-c",code],capture_output=True,text=True,timeout=10,check=False)
+              if cp.returncode==0:
+                  kvm["api_version"]=int(cp.stdout.strip())
+                  kvm["sudo_callable"]=kvm["api_version"]==12
+              else:
+                  kvm["error"]=(cp.stderr or cp.stdout).strip()[-1000:]
+
+          if image and kvm["sudo_callable"]:
+              classification="SUPPORTED_FOR_O1"
+          elif not image:
+              classification="BLOCKED_PUBLIC_ARTIFACT_UNAVAILABLE"
+          else:
+              classification="BLOCKED_KVM_PREREQUISITE"
+
+          rootfs_sha=None
+          rootfs_bytes=None
+          if (root/"rootfs.tar").exists():
+              rootfs_bytes=(root/"rootfs.tar").stat().st_size
+              rootfs_sha=(root/"rootfs.tar.sha256").read_text().split()[0]
+
+          receipt={
+              "schema":"osd-firecracker-o0-public-artifact/v1",
+              "authority":"mark-e-deyoung/open-space-duel-private#283",
+              "classification":classification,
+              "private_source_access":False,
+              "anonymous_public_artifact":bool(image),
+              "image":image or None,
+              "image_id":inspect.get("Id") if inspect else None,
+              "repo_digests":inspect.get("RepoDigests") if inspect else None,
+              "architecture":inspect.get("Architecture") if inspect else None,
+              "os":inspect.get("Os") if inspect else None,
+              "entrypoint":((inspect.get("Config") or {}).get("Entrypoint")) if inspect else None,
+              "cmd":((inspect.get("Config") or {}).get("Cmd")) if inspect else None,
+              "rootfs_export_sha256":rootfs_sha,
+              "rootfs_export_bytes":rootfs_bytes,
+              "runner":{
+                  "architecture":platform.machine(),
+                  "kernel":platform.release(),
+                  "image_os":os.environ.get("ImageOS"),
+                  "image_version":os.environ.get("ImageVersion"),
+              },
+              "kvm":kvm,
+              "next_gate":"O1 boot exact released peer rootfs under Firecracker and exercise smallest startup/protocol oracle if SUPPORTED_FOR_O1."
+          }
+          (root/"receipt.json").write_text(json.dumps(receipt,indent=2,sort_keys=True)+"\n")
+          print(json.dumps(receipt,indent=2,sort_keys=True))
+          PY
+
+      - name: Upload O0 receipt
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: osd-o0-public-artifact-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/osd-o0/receipt.json
+            ${{ runner.temp }}/osd-o0/image-inspect.json
+            ${{ runner.temp }}/osd-o0/manifest.json
+            ${{ runner.temp }}/osd-o0/rootfs.tar.sha256
+          if-no-files-found: warn
+          retention-days: 7

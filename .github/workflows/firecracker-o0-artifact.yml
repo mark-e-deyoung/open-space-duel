@@ -1,9 +1,6 @@
 name: OSD O0 Public Artifact Placement Probe
 
 on:
-  push:
-    branches:
-      - experiment/firecracker-o0-artifact
   workflow_dispatch:
 
 permissions:

@@ -73,6 +73,11 @@ const forbiddenText = [
   'SemperSupra/engineering-governance-private',
   'PUBLIC_REPO_DEPLOY_KEY',
   'CAPROVER_PASSWORD',
+  // Public candidates must contain neither private test instrumentation nor
+  // a URL-activated test-mode bypass. Do not trust private projector alone.
+  '__OSD_TEST_HOOKS__',
+  'getDiagText',
+  'testMode',
 ];
 const highConfidenceSecrets = [
   /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/,

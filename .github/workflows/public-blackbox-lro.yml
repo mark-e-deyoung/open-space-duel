@@ -28,6 +28,22 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Validate the independent PUBLIC source verifier before any candidate trust
+  # is delegated to it. These fixtures never contain private repository data.
+  candidate-source-boundary:
+    name: Public candidate verifier negative controls
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Run seven dependency-free boundary checks
+        run: node --test .github/public-tests/verify-public-candidate.selfcheck.mjs
+
   browser-soak:
     name: ${{ matrix.browser }} black-box soak
     runs-on: ubuntu-24.04

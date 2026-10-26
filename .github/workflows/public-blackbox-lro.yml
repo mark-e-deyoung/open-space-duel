@@ -1,6 +1,12 @@
 name: Public black-box LRO
 
 on:
+  # Explicit $0 public-only one-shot check against the already deployed site.
+  # No source projection, private tokens, deployment or release authority.
+  push:
+    branches: [release-control]
+    paths:
+      - .github/workflows/public-blackbox-lro.yml
   workflow_dispatch:
     inputs:
       target_url:
@@ -44,8 +50,8 @@ jobs:
           npx playwright install --with-deps "${{ matrix.browser }}"
       - name: Run repeated public deployment smoke
         env:
-          DEPLOYED_BASE_URL: ${{ inputs.target_url }}
-          SOAK_ITERATIONS: ${{ inputs.iterations }}
+          DEPLOYED_BASE_URL: ${{ inputs.target_url || 'https://mark-e-deyoung.github.io/open-space-duel/' }}
+          SOAK_ITERATIONS: ${{ inputs.iterations || '3' }}
         run: >-
           npx playwright test
           --config=.github/public-tests/playwright.config.cjs

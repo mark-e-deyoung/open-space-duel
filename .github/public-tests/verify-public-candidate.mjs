@@ -106,6 +106,28 @@ if (pkg.repository?.url !== 'git+https://github.com/mark-e-deyoung/open-space-du
 }
 if (pkg.license !== 'ISC') fail(`unexpected package license ${JSON.stringify(pkg.license)}`);
 
+// The public exporter omits private tests/ and scripts/ entirely. A published
+// package may not advertise commands depending on those removed paths.
+// This checks developer usability before installing or executing candidate code.
+const privateOnlyScripts = new Set([
+  'build:qualification',
+  'test:exposure',
+  'verify:production-exposure',
+  'test:exposure:scanner',
+  'test:exposure:preflight',
+]);
+for (const [name, command] of Object.entries(pkg.scripts || {})) {
+  if (privateOnlyScripts.has(name)) {
+    fail(`private-only npm script remains in public package: ${name}`);
+  }
+  if (typeof command !== 'string' ||
+    /(?:^|\\s)(?:node|bash|sh)\\s+scripts\\//.test(command) ||
+    /(?:^|\\s)(?:tests|scripts)\\//.test(command) ||
+    /--mode\\s+qualification\\b/.test(command)) {
+    fail(`public npm script references withheld source: ${name}`);
+  }
+}
+
 console.log(`Verified sanitized public candidate: ${declared.size} projected files`);
 console.log(`Qualification class: ${manifest.qualificationClass}`);
 console.log(`Projection policy SHA-256: ${manifest.projectionPolicySha256}`);

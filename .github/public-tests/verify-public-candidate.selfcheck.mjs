@@ -1,0 +1,85 @@
+import { test, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { tmpdir } from 'node:os';
+
+const verifier = fileURLToPath(new URL('./verify-public-candidate.mjs', import.meta.url));
+const scratch = mkdtempSync(join(tmpdir(), 'osd-public-verifier-'));
+after(() => rmSync(scratch, { recursive: true, force: true }));
+const digest = (buffer) => createHash('sha1')
+  .update(Buffer.from('blob ' + buffer.length + '\0')).update(buffer).digest('hex');
+const manifestDigest = '0'.repeat(64);
+
+function fixture(label, source = 'export const ordinary = true;') {
+  const dir = join(scratch, label);
+  mkdirSync(join(dir, 'src'), { recursive: true });
+  const files = [
+    ['package.json', JSON.stringify({
+      name: 'osd-public-fixture', license: 'ISC',
+      repository: { url: 'git+https://github.com/mark-e-deyoung/open-space-duel.git' }
+    })],
+    ['src/main.ts', source],
+  ];
+  for (const [p, data] of files) writeFileSync(join(dir, p), data);
+  const manifest = {
+    schemaVersion: 2,
+    publicRepository: 'mark-e-deyoung/open-space-duel',
+    qualificationClass: 'private-required',
+    projectionPolicySha256: manifestDigest,
+    promotionPolicySha256: manifestDigest,
+    files: files.map(([path, content]) => {
+      const value = Buffer.from(content);
+      return { path, bytes: value.length, gitBlobSha1: digest(value) };
+    })
+  };
+  writeFileSync(join(dir, 'PUBLIC-PROJECTION-MANIFEST.json'),
+    JSON.stringify(manifest));
+  return dir;
+}
+function check(dir) {
+  const result = spawnSync(process.execPath, [verifier, dir],
+    { encoding: 'utf8', timeout: 10000 });
+  assert.equal(result.error, undefined, result.error?.message);
+  return { status: result.status, log: result.stdout + result.stderr };
+}
+test('minimal legitimate public candidate is accepted', () => {
+  const result = check(fixture('safe'));
+  assert.equal(result.status, 0, result.log);
+  assert.match(result.log, /Verified sanitized public candidate/);
+});
+for (const [label, text] of [
+  ['QA global', 'window.__OSD_TEST_HOOKS__ = {}'],
+  ['privileged diagnostics', 'const getDiagText = () => "private"'],
+  ['URL test bypass', 'const isTestMode = location.search.includes("testMode")'],
+]) {
+  test(label + ' is refused even with correct manifest checksums', () => {
+    const result = check(fixture(label.replaceAll(' ', '-'), text));
+    assert.equal(result.status, 1, result.log);
+    assert.match(result.log, /forbidden private\/restricted reference/);
+  });
+}
+test('unlisted source file is rejected', () => {
+  const dir = fixture('unlisted');
+  writeFileSync(join(dir, 'private.txt'), 'not declared');
+  const result = check(dir);
+  assert.equal(result.status, 1, result.log);
+  assert.match(result.log, /undeclared file/);
+});
+test('symlink escape is rejected', () => {
+  const dir = fixture('symlink');
+  symlinkSync(join(scratch, 'outside'), join(dir, 'src', 'link'));
+  const result = check(dir);
+  assert.equal(result.status, 1, result.log);
+  assert.match(result.log, /symlink is not allowed/);
+});
+test('manifest checksum mismatch is rejected', () => {
+  const dir = fixture('tampered');
+  writeFileSync(join(dir, 'src', 'main.ts'), 'changed after manifest');
+  const result = check(dir);
+  assert.equal(result.status, 1, result.log);
+  assert.match(result.log, /blob identity mismatch/);
+});

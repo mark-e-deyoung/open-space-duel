@@ -27,7 +27,7 @@ concurrency:
 jobs:
   resolve-request:
     name: Resolve immutable candidate request
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       candidate_ref: ${{ steps.resolve.outputs.candidate_ref }}
@@ -66,7 +66,7 @@ jobs:
   validate-build:
     name: Verify, audit, lint, typecheck, build once
     needs: resolve-request
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     outputs:
       qualification_class: ${{ steps.package.outputs.qualification_class }}
@@ -188,7 +188,7 @@ jobs:
   browser-matrix:
     name: ${{ matrix.browser }} exact-artifact soak
     needs: [resolve-request, validate-build]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     strategy:
       fail-fast: false
@@ -249,7 +249,7 @@ jobs:
     name: Deploy exact ordinary artifact
     needs: [resolve-request, validate-build, browser-matrix]
     if: needs.validate-build.outputs.qualification_class == 'ordinary'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: write
@@ -313,7 +313,7 @@ jobs:
     name: Private qualification required
     needs: [resolve-request, validate-build, browser-matrix]
     if: needs.validate-build.outputs.qualification_class == 'private-required'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Stop before deployment
         run: |

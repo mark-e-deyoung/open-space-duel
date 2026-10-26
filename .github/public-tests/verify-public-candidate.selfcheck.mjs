@@ -2,7 +2,7 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -14,12 +14,12 @@ const digest = (buffer) => createHash('sha1')
   .update(Buffer.from('blob ' + buffer.length + '\0')).update(buffer).digest('hex');
 const manifestDigest = '0'.repeat(64);
 
-function fixture(label, source = 'export const ordinary = true;') {
+function fixture(label, source = 'export const ordinary = true;', scripts = {}) {
   const dir = join(scratch, label);
   mkdirSync(join(dir, 'src'), { recursive: true });
   const files = [
     ['package.json', JSON.stringify({
-      name: 'osd-public-fixture', license: 'ISC',
+      name: 'osd-public-fixture', license: 'ISC', scripts,
       repository: { url: 'git+https://github.com/mark-e-deyoung/open-space-duel.git' }
     })],
     ['src/main.ts', source],
@@ -82,4 +82,24 @@ test('manifest checksum mismatch is rejected', () => {
   const result = check(dir);
   assert.equal(result.status, 1, result.log);
   assert.match(result.log, /blob identity mismatch/);
+});
+
+for (const [label, scripts] of [
+  ['retained QA build command', { 'build:qualification': 'vite build --mode qualification' }],
+  ['retained private exposure script', { 'test:exposure': 'node scripts/run-exposure-check.mjs' }],
+  ['production command points to omitted script', { build: 'vite build && node scripts/verify-public-exposure.mjs' }],
+  ['private tests path remains referenced', { lint: 'eslint src tests/e2e' }],
+]) {
+  test('private npm script dependency is refused: ' + label, () => {
+    const result = check(fixture('script-' + label.replaceAll(' ', '-'),
+      'export const ordinary = true;', scripts));
+    assert.equal(result.status, 1, result.log);
+    assert.match(result.log, /private-only npm script|public npm script references withheld source/);
+  });
+}
+test('public package with safe build and lint scripts is accepted', () => {
+  const result = check(fixture('safe-public-scripts',
+    'export const ordinary = true;',
+    { build: 'tsc --noEmit && vite build', lint: 'eslint src', typecheck: 'tsc --noEmit' }));
+  assert.equal(result.status, 0, result.log);
 });

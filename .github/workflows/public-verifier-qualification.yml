@@ -1,0 +1,32 @@
+name: Public candidate boundary qualification
+
+on:
+  push:
+    branches: [release-control]
+    paths:
+      - .github/public-tests/verify-public-candidate.mjs
+      - .github/public-tests/verify-public-candidate.selfcheck.mjs
+      - .github/workflows/public-verifier-qualification.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-verifier-qualification-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  negative-controls:
+    name: Source, manifest, and public DX negative controls
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Run public candidate verifier fixtures without dependencies
+        run: node --test .github/public-tests/verify-public-candidate.selfcheck.mjs

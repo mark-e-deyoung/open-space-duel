@@ -121,9 +121,9 @@ for (const [name, command] of Object.entries(pkg.scripts || {})) {
     fail(`private-only npm script remains in public package: ${name}`);
   }
   if (typeof command !== 'string' ||
-    /(?:^|\\s)(?:node|bash|sh)\\s+scripts\\//.test(command) ||
-    /(?:^|\\s)(?:tests|scripts)\\//.test(command) ||
-    /--mode\\s+qualification\\b/.test(command)) {
+    /(?:^|\s)(?:node|bash|sh)\s+scripts\//.test(command) ||
+    /(?:^|\s)(?:tests|scripts)\//.test(command) ||
+    /--mode\s+qualification\b/.test(command)) {
     fail(`public npm script references withheld source: ${name}`);
   }
 }

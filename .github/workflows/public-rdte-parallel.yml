@@ -1,0 +1,70 @@
+name: Public OSD parallel RDTE one-shot
+
+on:
+  push:
+    branches: [rdte/osd-public-gha-parallel-20261027]
+    paths:
+      - .github/workflows/public-rdte-parallel.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-osd-rdte-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  public-boundary-verifier:
+    name: Public manifest and source security negative controls
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout public-only control fixture
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Set up Node 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Public verifier regression suite
+        run: node --test .github/public-tests/verify-public-candidate.selfcheck.mjs
+
+  deployed-browser-matrix:
+    name: ${{ matrix.browser }} public deploy and viewport
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    steps:
+      - name: Checkout public-only browser harness
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Set up Node 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Install public Playwright runner
+        run: |
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.59.1
+          npx playwright install --with-deps "${{ matrix.browser }}"
+      - name: Test existing PUBLIC deployed site (no deploy)
+        env:
+          DEPLOYED_BASE_URL: https://mark-e-deyoung.github.io/open-space-duel/
+          SOAK_ITERATIONS: '2'
+        run: >-
+          npx playwright test
+          --config=.github/public-tests/playwright.config.cjs
+          --project="${{ matrix.browser }}"
+      - name: Upload public visual evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: public-osd-rdte-${{ matrix.browser }}-${{ github.run_id }}
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7

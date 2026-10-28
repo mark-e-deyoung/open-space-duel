@@ -14,7 +14,13 @@ function gitBlobSha1(data) {
 
 function walk(root, dir = root, out = []) {
   for (const name of readdirSync(dir).sort()) {
-    if (name === '.git' || name === 'node_modules' || name === 'dist') continue;
+    // The verifier runs before npm ci and build on a clean checkout.
+    // Pre-existing generated/install trees cannot be declared in the manifest
+    // under the existing policy and must not bypass its exact-file census.
+    if (name === '.git') continue;
+    if (name === 'node_modules' || name === 'dist') {
+      fail(`pre-existing directory is not permitted: ${relative(root, join(dir, name))}`);
+    }
     const path = join(dir, name);
     const stat = lstatSync(path);
     if (stat.isSymbolicLink()) fail(`symlink is not allowed: ${relative(root, path)}`);

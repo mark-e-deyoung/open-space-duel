@@ -134,10 +134,11 @@ test('benign reviewed binary with NUL is accepted when manifest matches bytes', 
 
 test('interleaved NUL forbidden QA marker is denied in projected bytes', () => {
   const marker = 'window.__OSD_TEST_HOOKS__ = {}';
-  const bytes = Buffer.from(marker.split('').join('\\0') + '\\0', 'binary');
+  const separator = String.fromCharCode(0);
+  const bytes = Buffer.from(marker.split('').join(separator) + separator);
   const result = check(fixture('nul-interleaved-marker', bytes));
   assert.equal(result.status, 1, result.log);
-  assert.match(result.log, /forbidden private\\/restricted reference/);
+  assert.match(result.log, new RegExp('forbidden private/restricted reference'));
 });
 
 test('UTF-16LE-like synthetic token pattern cannot bypass scan', () => {
@@ -148,7 +149,7 @@ test('UTF-16LE-like synthetic token pattern cannot bypass scan', () => {
 });
 
 test('NUL-bearing benign split data with no marker remains accepted', () => {
-  const bytes = Buffer.from('a\\0b\\0c\\0', 'binary');
+  const bytes = Buffer.from([97, 0, 98, 0, 99, 0]);
   const result = check(fixture('nul-benign-split', bytes));
   assert.equal(result.status, 0, result.log);
 });

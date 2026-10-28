@@ -1,0 +1,21 @@
+name: Public synthetic verifier test
+on:
+  push:
+    branches:
+      - rdte/osd-public-interleaved-nul-20261028
+    paths:
+      - .github/workflows/public-nul-rdte.yml
+      - .github/public-tests/verify-public-candidate.mjs
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - run: node --test .github/public-tests/verify-public-candidate.selfcheck.mjs

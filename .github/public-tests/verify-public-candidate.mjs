@@ -93,11 +93,20 @@ for (const [path, item] of declared) {
   // A NUL byte must not exempt a projected file from forbidden-reference
   // or ASCII-formatted secret checks. This applies to reviewed binary assets.
   const text = data.toString('utf8');
-  for (const needle of forbiddenText) {
-    if (text.includes(needle)) fail(`forbidden private/restricted reference in ${path}`);
-  }
-  for (const pattern of highConfidenceSecrets) {
-    if (pattern.test(text)) fail(`high-confidence secret pattern in ${path}`);
+  // Raw UTF-8 checks remain mandatory. Also inspect a NUL-elided view so
+  // zero-interleaved ASCII (including UTF-16-style content) cannot hide
+  // restricted markers or synthetic secret patterns in a declared blob.
+  // This is intentionally fail-closed even when the asset is reviewed binary.
+  const scanViews = data.includes(0)
+    ? [text, text.replaceAll(String.fromCharCode(0), '')]
+    : [text];
+  for (const view of scanViews) {
+    for (const needle of forbiddenText) {
+      if (view.includes(needle)) fail(`forbidden private/restricted reference in ${path}`);
+    }
+    for (const pattern of highConfidenceSecrets) {
+      if (pattern.test(view)) fail(`high-confidence secret pattern in ${path}`);
+    }
   }
 }
 

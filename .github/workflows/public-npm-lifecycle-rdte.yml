@@ -1,0 +1,23 @@
+name: OSD public candidate npm-script boundary qualification
+on:
+  push:
+    branches:
+      - rdte/osd-public-npm-lifecycle-20261028
+    paths:
+      - .github/workflows/public-npm-lifecycle-rdte.yml
+      - .github/public-tests/verify-public-candidate.mjs
+permissions:
+  contents: read
+jobs:
+  synthetic-verifier:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Run synthetic public manifest and npm-script tests
+        run: node --test .github/public-tests/verify-public-candidate.selfcheck.mjs

@@ -5,6 +5,7 @@ on:
     branches: [rdte/osd-public-menu-interaction-20261028]
     paths:
       - .github/workflows/public-menu-interaction-rdte.yml
+      - .github/public-tests/public-menu-interaction.spec.cjs
 
 permissions:
   contents: read

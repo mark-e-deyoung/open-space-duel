@@ -153,3 +153,19 @@ test('NUL-bearing benign split data with no marker remains accepted', () => {
   const result = check(fixture('nul-benign-split', bytes));
   assert.equal(result.status, 0, result.log);
 });
+
+
+for (const [label, scripts] of [
+  ['auto-install', { postinstall: 'node -e "console.log(1)"' }],
+  ['auto-prebuild', { prebuild: 'node -e "console.log(1)"' }],
+  ['auto-prelint', { prelint: 'node -e "console.log(1)"' }],
+  ['build-command-drift', { build: 'node -e "console.log(1)"' }],
+  ['typecheck-command-drift', { typecheck: 'node -e "console.log(1)"' }],
+]) {
+  test('candidate must reject unreviewed npm execution surface: ' + label, () => {
+    const result = check(fixture('npm-' + label,
+      'export const ordinary = true;', scripts));
+    assert.equal(result.status, 1, result.log);
+    assert.match(result.log, /unsafe public npm script|unapproved npm script/);
+  });
+}

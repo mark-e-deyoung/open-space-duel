@@ -169,3 +169,15 @@ for (const [label, scripts] of [
     assert.match(result.log, /unsafe public npm script|unapproved npm script/);
   });
 }
+
+
+for (const subdir of ['dist', 'node_modules']) {
+  test('undeclared pre-existing ' + subdir + ' content is rejected before build', () => {
+    const dir = fixture('preexisting-' + subdir.replaceAll('_', '-'));
+    mkdirSync(join(dir, subdir), { recursive: true });
+    writeFileSync(join(dir, subdir, 'unexpected-file.txt'), 'synthetic nonsecret payload');
+    const result = check(dir);
+    assert.equal(result.status, 1, result.log);
+    assert.match(result.log, /undeclared file|pre-existing directory/);
+  });
+}

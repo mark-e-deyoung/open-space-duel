@@ -1,0 +1,33 @@
+name: Public verifier Node runtime matrix
+on:
+  push:
+    branches:
+      - rdte/osd-verifier-node-matrix-20261028
+    paths:
+      - .github/workflows/public-verifier-node-matrix.yml
+permissions:
+  contents: read
+jobs:
+  verifier-runtime:
+    name: Node ${{ matrix.node }} public trust verifier
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22', '24']
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Verify exact two PR 31 file identities
+        shell: bash
+        run: |
+          test "$(git hash-object .github/public-tests/verify-public-candidate.mjs)" = "8c678d637f5b3c4e49cf742adea4973cbf73c2f9"
+          test "$(git hash-object .github/public-tests/verify-public-candidate.selfcheck.mjs)" = "0a0fa29bedc4dcfbdd169c4ad97d3296bd9b1c5d"
+          node --version
+      - name: Run public-only synthetic security suite
+        run: node --test .github/public-tests/verify-public-candidate.selfcheck.mjs

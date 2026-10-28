@@ -90,7 +90,8 @@ for (const [path, item] of declared) {
   const data = readFileSync(join(candidateRoot, path));
   if (gitBlobSha1(data) !== item.gitBlobSha1) fail(`Git blob identity mismatch for ${path}`);
   if (data.length !== item.bytes) fail(`size mismatch for ${path}`);
-  if (data.includes(0)) continue;
+  // A NUL byte must not exempt a projected file from forbidden-reference
+  // or ASCII-formatted secret checks. This applies to reviewed binary assets.
   const text = data.toString('utf8');
   for (const needle of forbiddenText) {
     if (text.includes(needle)) fail(`forbidden private/restricted reference in ${path}`);

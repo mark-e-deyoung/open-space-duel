@@ -1,0 +1,31 @@
+# Isolated public-safe independent verifier security qualification; no private source.
+name: OSD independent public verifier NUL security qualification
+on:
+  push:
+    branches:
+      - rdte/osd-verifier-security-independent-20261028
+    paths:
+      - .github/workflows/osd-verifier-independent-20261028.yml
+permissions:
+  contents: read
+jobs:
+  independent-verifier:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Checkout public V1 sources
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Use Node 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Verify exact inherited PR-30 source blob inputs
+        shell: bash
+        run: |
+          test "$(git hash-object .github/public-tests/verify-public-candidate.mjs)" = "fac0ac0f46be70e28198fc6d9c8447a96d1de510"
+          test "$(git hash-object .github/public-tests/verify-public-candidate.selfcheck.mjs)" = "bb67f3bd2af1d661f6e04485e216470318a3921c"
+          git rev-parse HEAD
+      - name: Independently run public source verifier suite
+        run: node --test .github/public-tests/verify-public-candidate.selfcheck.mjs

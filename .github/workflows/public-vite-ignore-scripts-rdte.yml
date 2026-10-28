@@ -1,0 +1,65 @@
+name: Public Vite build with lifecycle-suppressed dependencies
+on:
+  push:
+    branches:
+      - rdte/osd-vite-no-install-hooks-20261028
+    paths:
+      - .github/workflows/public-vite-ignore-scripts-rdte.yml
+permissions:
+  contents: read
+jobs:
+  vite:
+    name: Vite TypeScript build Node ${{ matrix.node }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22', '24']
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Prepare public synthetic Vite/TypeScript fixture
+        run: |
+          mkdir -p rdte-site/src
+          cat >rdte-site/package.json <<'JSON'
+          {
+            "name": "osd-public-vite-rdte",
+            "version": "1.0.0",
+            "private": true,
+            "type": "module",
+            "scripts": {
+              "build": "tsc --noEmit && vite build",
+              "typecheck": "tsc --noEmit"
+            },
+            "devDependencies": {
+              "vite": "6.3.6",
+              "typescript": "5.8.3"
+            }
+          }
+          JSON
+          cat >rdte-site/tsconfig.json <<'JSON'
+          {"compilerOptions":{"target":"ES2022","module":"ESNext","moduleResolution":"Bundler","lib":["ES2022","DOM"],"strict":true},"include":["src"]}
+          JSON
+          cat >rdte-site/index.html <<'HTML'
+          <!doctype html><html lang="en"><head><meta charset="utf-8"><title>Public RDTE</title></head><body><main id="app"></main><script type="module" src="/src/main.ts"></script></body></html>
+          HTML
+          cat >rdte-site/src/main.ts <<'TS'
+          const target = document.querySelector<HTMLElement>('#app');
+          if (target) target.textContent = 'Synthetic public Vite build qualified';
+          TS
+          cd rdte-site
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - name: Install without lifecycle scripts then run explicit build
+        working-directory: rdte-site
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run typecheck
+          npm run build
+          test -s dist/index.html
+          test -n "$(find dist/assets -name '*.js' -print -quit)"
+          echo "Synthetic public Vite build PASS on $(node --version)"

@@ -1,0 +1,57 @@
+name: OSD public npm installation hook semantics
+on:
+  push:
+    branches:
+      - rdte/osd-public-npm-install-semantics-20261028
+    paths:
+      - .github/workflows/public-npm-install-semantics.yml
+permissions:
+  contents: read
+jobs:
+  lifecycle-control:
+    name: Synthetic npm ci ${{ matrix.mode }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [ordinary, ignore]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Create local synthetic no-dependency package
+        run: |
+          mkdir -p rdte-package
+          node - <<'NODE'
+          const fs = require('node:fs');
+          fs.writeFileSync('rdte-package/package.json', JSON.stringify({
+            name: 'osd-public-npm-rdte',
+            version: '1.0.0',
+            private: true,
+            scripts: {
+              postinstall: 'node -e "require(\'node:fs\').writeFileSync(\'hook-ran.txt\',\'yes\')"',
+              build: 'node -e "require(\'node:fs\').writeFileSync(\'build-ran.txt\',\'yes\')"'
+            }
+          }, null, 2));
+          NODE
+          cd rdte-package
+          npm install --package-lock-only --ignore-scripts --offline
+      - name: Exercise explicit installation policy
+        working-directory: rdte-package
+        env:
+          MODE: ${{ matrix.mode }}
+        run: |
+          if [ "$MODE" = ignore ]; then
+            npm ci --ignore-scripts --offline
+            test ! -e hook-ran.txt
+          else
+            npm ci --offline
+            test -f hook-ran.txt
+          fi
+          npm run build
+          test -f build-ran.txt
+          echo "Synthetic npm install policy PASS: $MODE"

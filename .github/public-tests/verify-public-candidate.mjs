@@ -138,6 +138,23 @@ for (const [name, command] of Object.entries(pkg.scripts || {})) {
   }
 }
 
+// Public projection defines exactly which package commands are allowed to run.
+// npm ci, npm run build/lint/typecheck, and npm lifecycle hooks all execute
+// package scripts. Reject undeclared hooks and command drift, not just
+// references to the omitted private scripts/ and tests/ trees.
+const approvedScripts = new Map([
+  ['dev', 'vite'],
+  ['preview', 'vite preview'],
+  ['lint', 'eslint src'],
+  ['typecheck', 'tsc --noEmit'],
+  ['build', 'tsc --noEmit && vite build'],
+]);
+for (const [name, command] of Object.entries(pkg.scripts || {})) {
+  if (approvedScripts.get(name) !== command) {
+    fail(`unapproved npm script in public candidate: ${name}`);
+  }
+}
+
 console.log(`Verified sanitized public candidate: ${declared.size} projected files`);
 console.log(`Qualification class: ${manifest.qualificationClass}`);
 console.log(`Projection policy SHA-256: ${manifest.projectionPolicySha256}`);

@@ -68,3 +68,40 @@ test('public survival action is clickable after onboarding dismissal', async ({ 
   await survival.click();
   await page.screenshot({ path: testInfo.outputPath('survival-click-' + testInfo.project.name + '.png'), fullPage: true });
 });
+
+
+test('public compact landscape geometry does not obscure config behind title or launch bar', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 568, height: 320 });
+  const response = await page.goto('?__osd_public_menu_rdte=landscape-geometry', { waitUntil: 'domcontentloaded' });
+  expect(response).not.toBeNull();
+  expect(response.status()).toBeLessThan(400);
+  const dismiss = page.getByRole('button', { name: /got it/i });
+  await expect(dismiss).toBeVisible();
+  await dismiss.click();
+  await expect(dismiss).toBeHidden();
+  const menu = page.getByTestId('main-menu');
+  const title = menu.getByTestId('game-title');
+  const heading = menu.getByRole('heading', { name: 'PILOT 1 CONFIG' });
+  const slider = menu.getByTestId('stat-focus-slider');
+  const launch = menu.getByTestId('start-local-btn').locator('..');
+  await expect(title).toBeVisible();
+  await expect(heading).toBeVisible();
+  await expect(slider).toBeVisible();
+  const [titleBox, headingBox, sliderBox, launchBox] = await Promise.all([
+    title.boundingBox(), heading.boundingBox(), slider.boundingBox(), launch.boundingBox()
+  ]);
+  expect(titleBox).not.toBeNull();
+  expect(headingBox).not.toBeNull();
+  expect(sliderBox).not.toBeNull();
+  expect(launchBox).not.toBeNull();
+  const geometry = {
+    browser: testInfo.project.name,
+    viewport: { width: 568, height: 320 },
+    title: titleBox, pilotHeading: headingBox, tuningSlider: sliderBox, launchBar: launchBox
+  };
+  console.log('PUBLIC_LANDSCAPE_GEOMETRY ' + JSON.stringify(geometry));
+  await page.screenshot({ path: testInfo.outputPath('landscape-before-assert.png'), fullPage: true });
+  // Both are intentionally soft: preserve the independent first failures.
+  expect.soft(headingBox.y, 'Pilot heading must be below game title').toBeGreaterThanOrEqual(titleBox.y + titleBox.height);
+  expect.soft(sliderBox.y + sliderBox.height, 'Tuning control must remain above bottom launcher').toBeLessThanOrEqual(launchBox.y);
+});

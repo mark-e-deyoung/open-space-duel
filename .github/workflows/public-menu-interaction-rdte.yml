@@ -1,0 +1,52 @@
+name: Public OSD menu interaction RDTE
+
+on:
+  push:
+    branches: [rdte/osd-public-menu-interaction-20261028]
+    paths:
+      - .github/workflows/public-menu-interaction-rdte.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-osd-menu-interaction-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  browsers:
+    name: ${{ matrix.browser }} onboarding and menu controls
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Install PUBLIC Playwright only
+        run: |
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.59.1
+          npx playwright install --with-deps "${{ matrix.browser }}"
+      - name: Observe and exercise public deployed menu
+        env:
+          DEPLOYED_BASE_URL: https://mark-e-deyoung.github.io/open-space-duel/
+          SOAK_ITERATIONS: '1'
+        run: >-
+          npx playwright test
+          --config=.github/public-tests/playwright.config.cjs
+          --project="${{ matrix.browser }}"
+      - name: Save public-only screenshots and failure traces
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: osd-public-menu-${{ matrix.browser }}-${{ github.run_id }}
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7

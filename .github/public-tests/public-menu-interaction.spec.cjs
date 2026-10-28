@@ -23,8 +23,9 @@ for (const viewport of viewports) {
     await expect(dismiss).toBeVisible();
     const closeRect = await dismiss.boundingBox();
     expect(closeRect).not.toBeNull();
-    expect(closeRect.width).toBeGreaterThanOrEqual(44);
-    expect(closeRect.height).toBeGreaterThanOrEqual(44);
+    const touchViolations = [];
+    console.log(JSON.stringify({control:'GOT IT', viewport: viewport.name, width: closeRect.width, height: closeRect.height, browser: testInfo.project.name}));
+    if (closeRect.width < 44 || closeRect.height < 44) touchViolations.push('GOT IT: ' + Math.round(closeRect.width) + 'x' + Math.round(closeRect.height) + 'px');
     await dismiss.click();
     await expect(dismiss).toBeHidden();
 
@@ -35,8 +36,8 @@ for (const viewport of viewports) {
       await expect(control).toBeVisible();
       const bounds = await control.boundingBox();
       expect(bounds).not.toBeNull();
-      expect(bounds.width).toBeGreaterThanOrEqual(44);
-      expect(bounds.height).toBeGreaterThanOrEqual(44);
+      console.log(JSON.stringify({control:title, viewport: viewport.name, width:bounds.width, height:bounds.height, browser:testInfo.project.name}));
+      if (bounds.width < 44 || bounds.height < 44) touchViolations.push(title + ': ' + Math.round(bounds.width) + 'x' + Math.round(bounds.height) + 'px');
     }
 
     const metrics = await page.evaluate(() => ({
@@ -48,6 +49,8 @@ for (const viewport of viewports) {
     console.log(JSON.stringify({ ...viewport, ...metrics, browser: testInfo.project.name }));
     expect(metrics.documentWidth).toBeLessThanOrEqual(metrics.innerWidth + 1);
     await page.screenshot({ path: testInfo.outputPath('menu-dismissed-' + viewport.name + '.png'), fullPage: true });
+    // Preserve the 44px gate: collect all measurements before failing.
+    expect(touchViolations, 'Public mobile touch targets below 44 CSS px').toEqual([]);
   });
 }
 

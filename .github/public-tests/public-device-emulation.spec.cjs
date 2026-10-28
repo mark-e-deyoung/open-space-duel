@@ -14,8 +14,16 @@ function point(rect) {
 }
 test('real tap input dismisses onboarding and activates Survival', async ({ page }, testInfo) => {
   const dismiss = await firstVisit(page, 'tap-survival');
-  const touch = await page.evaluate(() => ({ maxTouchPoints: navigator.maxTouchPoints, width: innerWidth }));
-  expect(touch.maxTouchPoints).toBeGreaterThan(0);
+  // The WebKit Linux iPhone emulation may report maxTouchPoints=0 despite a
+  // Playwright touch-enabled context. Assert the configured emulation and
+  // exercise real touch-dispatched .tap() calls below, not that UA heuristic.
+  expect(testInfo.project.use.hasTouch, 'device profile must enable touch').toBe(true);
+  const touch = await page.evaluate(() => ({
+    maxTouchPoints: navigator.maxTouchPoints,
+    hasTouchStart: 'ontouchstart' in window,
+    width: innerWidth
+  }));
+  console.log('PUBLIC_DEVICE_TOUCH_CONTEXT ' + JSON.stringify({ project: testInfo.project.name, ...touch }));
   await dismiss.tap();
   await expect(dismiss).toBeHidden();
   const menu = page.getByTestId('main-menu');

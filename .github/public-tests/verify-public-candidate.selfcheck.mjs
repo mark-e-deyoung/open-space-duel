@@ -103,3 +103,30 @@ test('public package with safe build and lint scripts is accepted', () => {
     { build: 'tsc --noEmit && vite build', lint: 'eslint src', typecheck: 'tsc --noEmit' }));
   assert.equal(result.status, 0, result.log);
 });
+
+test('NUL-bearing candidate source cannot bypass public QA-marker scan', () => {
+  const content = Buffer.concat([
+    Buffer.from([0, 1]),
+    Buffer.from('window.__OSD_TEST_HOOKS__ = {};')
+  ]);
+  const result = check(fixture('nul-marker', content));
+  assert.equal(result.status, 1, result.log);
+  assert.match(result.log, /forbidden private\/restricted reference/);
+});
+
+test('NUL-bearing source cannot bypass synthetic token-pattern scan', () => {
+  const content = Buffer.concat([
+    Buffer.from([0, 1]),
+    Buffer.from('ghp_' + 'Z'.repeat(20))
+  ]);
+  const result = check(fixture('nul-pattern', content));
+  assert.equal(result.status, 1, result.log);
+  assert.match(result.log, /high-confidence secret pattern/);
+});
+
+test('benign reviewed binary with NUL is accepted when manifest matches bytes', () => {
+  const content = Buffer.from([0, 1, 2, 128, 255, 0, 3]);
+  const result = check(fixture('nul-benign', content));
+  assert.equal(result.status, 0, result.log);
+  assert.match(result.log, /Verified sanitized public candidate/);
+});

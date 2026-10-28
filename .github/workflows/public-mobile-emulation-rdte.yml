@@ -1,0 +1,54 @@
+name: OSD public mobile-device emulation
+on:
+  push:
+    branches:
+      - rdte/osd-public-mobile-emulation-20261028
+    paths:
+      - .github/workflows/public-mobile-emulation-rdte.yml
+      - .github/public-tests/public-device-emulation.spec.cjs
+      - .github/public-tests/public-device-emulation.config.cjs
+permissions:
+  contents: read
+concurrency:
+  group: public-osd-mobile-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  device-emulation:
+    name: ${{ matrix.project }} published-site touch and layout
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - project: iphone13-webkit
+            browser: webkit
+          - project: pixel7-chromium
+            browser: chromium
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Install public browser harness
+        run: |
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.59.1
+          npx playwright install --with-deps "${{ matrix.browser }}"
+      - name: Qualify only the existing public site
+        env:
+          DEPLOYED_BASE_URL: https://mark-e-deyoung.github.io/open-space-duel/
+        run: >-
+          npx playwright test
+          --config=.github/public-tests/public-device-emulation.config.cjs
+          --project="${{ matrix.project }}"
+      - name: Preserve public-only screenshots and traces
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: public-mobile-${{ matrix.project }}-${{ github.run_id }}
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7

@@ -1,0 +1,23 @@
+name: Public preexisting generated-directory negative qualification
+on:
+  push:
+    branches:
+      - rdte/osd-preexisting-generated-tree-20261028
+    paths:
+      - .github/workflows/public-preexisting-tree-rdte.yml
+      - .github/public-tests/verify-public-candidate.mjs
+permissions:
+  contents: read
+jobs:
+  verifier:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Run isolated synthetic candidate boundary tests
+        run: node --test .github/public-tests/verify-public-candidate.selfcheck.mjs

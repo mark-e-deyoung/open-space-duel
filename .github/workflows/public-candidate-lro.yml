@@ -92,9 +92,12 @@ jobs:
           cache-dependency-path: candidate/package-lock.json
       - name: Independently verify candidate manifest and boundary
         run: node harness/.github/public-tests/verify-public-candidate.mjs candidate
-      - name: Install exact candidate dependencies
+      - name: Install exact candidate dependencies without lifecycle hooks
         working-directory: candidate
-        run: npm ci
+        # The public verifier rejects root npm script drift; transitive
+        # dependencies can still carry install hooks. Reject automatic
+        # lifecycle execution in this trust-boundary job.
+        run: npm ci --ignore-scripts
       - name: Audit shipped dependencies
         working-directory: candidate
         run: npm audit --omit=dev --audit-level=moderate

@@ -105,3 +105,36 @@ test('public compact landscape geometry does not obscure config behind title or 
   expect.soft(headingBox.y, 'Pilot heading must be below game title').toBeGreaterThanOrEqual(titleBox.y + titleBox.height);
   expect.soft(sliderBox.y + sliderBox.height, 'Tuning control must remain above bottom launcher').toBeLessThanOrEqual(launchBox.y);
 });
+
+
+test('public keyboard-only route reaches and activates Survival', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const response = await page.goto('?__osd_public_menu_rdte=keyboard-only', { waitUntil: 'domcontentloaded' });
+  expect(response).not.toBeNull();
+  expect(response.status()).toBeLessThan(400);
+
+  const dismiss = page.getByRole('button', { name: /got it/i });
+  await expect(dismiss).toBeVisible();
+  await dismiss.click();
+  await expect(dismiss).toBeHidden();
+
+  const menu = page.getByTestId('main-menu');
+  const survival = menu.getByRole('button', { name: 'SURVIVAL', exact: true });
+  await expect(survival).toBeVisible();
+  let reached = false;
+  for (let i = 0; i < 80; i += 1) {
+    await page.keyboard.press('Tab');
+    reached = await survival.evaluate(el => document.activeElement === el);
+    if (reached) break;
+  }
+  expect(reached, 'A keyboard-only user must reach the main Survival action by Tab').toBe(true);
+  await page.keyboard.press('Enter');
+  if (await menu.isVisible()) {
+    // The current first-player quick-launch contract can require a second
+    // explicit keyboard launch from the selected pilot card.
+    await expect(survival).toBeFocused();
+    await page.keyboard.press('Enter');
+  }
+  await expect(menu).toBeHidden();
+  await page.screenshot({ path: testInfo.outputPath('keyboard-only-survival.png') });
+});

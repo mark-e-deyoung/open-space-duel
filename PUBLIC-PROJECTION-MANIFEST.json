@@ -25,12 +25,12 @@
     },
     {
       "path": "package-lock.json",
-      "gitBlobSha1": "c09762a5d57d31128ddb58d80083c5452195f5f9",
+      "gitBlobSha1": "3b6b9792d56b528bce3dd223cf900204e6038531",
       "bytes": 245218
     },
     {
       "path": "package.json",
-      "gitBlobSha1": "92cc528c46baf148146753bed31eb90e60828471",
+      "gitBlobSha1": "f48fb1644ff2e901b814a97c9f7d53c61bdf6e09",
       "bytes": 1362
     },
     {
@@ -302,6 +302,23 @@
       "path": "vite.config.mts",
       "gitBlobSha1": "310bcfddc32b48f827a21b12ea4c0893be18776c",
       "bytes": 792
+    }
+  ],
+  "auditCorrections": [
+    {
+      "dependency": "fflate",
+      "from": "0.8.2",
+      "to": "0.8.3",
+      "advisory": "GHSA-px8p-9vwx-vf98"
+    },
+    {
+      "dependency": "ip-address",
+      "from": "10.2.0",
+      "to": "10.7.5",
+      "advisories": [
+        "GHSA-mwp4-54f8-5fhr",
+        "GHSA-rxp7-6hxx-x8q5"
+      ]
     }
   ]
 }

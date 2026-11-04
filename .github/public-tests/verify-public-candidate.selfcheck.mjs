@@ -181,3 +181,30 @@ for (const subdir of ['dist', 'node_modules']) {
     assert.match(result.log, /undeclared file|pre-existing directory/);
   });
 }
+
+for (const nested of ['src/.git', 'src/nested/.git']) {
+  test('unmanifested nested Git metadata is rejected: ' + nested, () => {
+    const dir = fixture('nested-git-' + nested.replaceAll('/', '-'));
+    mkdirSync(join(dir, nested), { recursive: true });
+    writeFileSync(join(dir, nested, 'config'), 'synthetic nested metadata');
+    const result = check(dir);
+    assert.equal(result.status, 1, result.log);
+    assert.match(result.log, /unapproved \.git entry/);
+  });
+}
+
+test('ordinary root checkout metadata is excluded from candidate census', () => {
+  const dir = fixture('root-git-allowed');
+  mkdirSync(join(dir, '.git'), { recursive: true });
+  writeFileSync(join(dir, '.git', 'config'), 'synthetic checkout metadata');
+  const result = check(dir);
+  assert.equal(result.status, 0, result.log);
+});
+
+test('symlinked root Git metadata cannot bypass candidate census', () => {
+  const dir = fixture('root-git-symlink');
+  symlinkSync(scratch, join(dir, '.git'));
+  const result = check(dir);
+  assert.equal(result.status, 1, result.log);
+  assert.match(result.log, /unapproved \.git entry/);
+});

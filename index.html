@@ -1,17 +1,37 @@
-<!DOCTYPE html><html lang="en"><head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-    <meta http-equiv="Pragma" content="no-cache">
-    <meta http-equiv="Expires" content="0">
-    <link rel="canonical" href="https://mark-e-deyoung.github.io/open-space-duel/" crossorigin="anonymous">
-    <meta property="og:type" content="website">
-    <meta property="og:url" content="https://mark-e-deyoung.github.io/open-space-duel/">
-    <meta property="og:title" content="Open Space Duel">
-    <meta property="og:description" content="Play Open Space Duel in the browser.">
-    <meta name="twitter:card" content="summary">
-    <meta name="twitter:url" content="https://mark-e-deyoung.github.io/open-space-duel/">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; worker-src 'self'; connect-src 'self' wss://relay.6502632.xyz:4443 wss://relay.damus.io wss://nos.lol https://osd-control.6502632.xyz:8443; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <meta
+      http-equiv="Cache-Control"
+      content="no-cache, no-store, must-revalidate"
+    />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <link rel="canonical" href="https://mark-e-deyoung.github.io/open-space-duel/" />
+    <meta property="og:type" content="website" />
+    <meta
+      property="og:url"
+      content="https://mark-e-deyoung.github.io/open-space-duel/"
+    />
+    <meta property="og:title" content="Open Space Duel" />
+    <meta
+      property="og:description"
+      content="Play Open Space Duel in the browser."
+    />
+    <meta name="twitter:card" content="summary" />
+    <meta
+      name="twitter:url"
+      content="https://mark-e-deyoung.github.io/open-space-duel/"
+    />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; connect-src 'self' wss: https:; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'"
+    />
     <title>Open Space Duel</title>
     <style>
       body,
@@ -108,74 +128,31 @@
       input[type='range']:hover {
         filter: drop-shadow(0 0 5px currentColor);
       }
-
-      /* ── Portrait mobile layout ────────────────────────────── */
-      @media (orientation: portrait) and (max-width: 480px) {
-        canvas#game-canvas {
-          width: 100vw;
-          height: 60vh;
-          height: 60dvh;
-          border: none;
-          border-bottom: 2px solid #222;
-        }
-        #game-container {
-          flex-direction: column;
-          justify-content: flex-start;
-        }
-        #ui-layer {
-          font-size: 12px;
-        }
-        #joypad-container {
-          position: relative !important;
-          height: 40vh !important;
-          height: 40dvh !important;
-          top: auto !important;
-          bottom: 0 !important;
-        }
-        .side-art {
-          display: none;
-        }
-        /* Scale down HUD text in portrait */
-        [data-testid="hud"] {
-          font-size: 14px !important;
-        }
-        [data-testid="p1-stats"] {
-          font-size: 11px !important;
-          min-width: 80px !important;
-        }
-        [data-testid="wave-display"] {
-          font-size: 11px !important;
-        }
-        /* Smaller menu cards on mobile */
-        .menu-card h2 {
-          font-size: 16px !important;
-        }
-        .menu-card button {
-          font-size: 10px !important;
-          padding: 6px 10px !important;
-        }
-        .menu-card input,
-        .menu-card select {
-          font-size: 10px !important;
-        }
+      button:focus-visible,
+      a:focus-visible,
+      input:focus-visible,
+      select:focus-visible,
+      [tabindex]:focus-visible {
+        outline: 3px solid #fff !important;
+        outline-offset: 2px;
       }
-      @media (orientation: landscape) and (max-height: 500px) {
-        canvas#game-canvas {
-          width: min(100vw, calc(100dvh * 4 / 3));
-          height: min(100dvh, calc(100vw * 3 / 4));
+      @media (prefers-reduced-motion: reduce) {
+        button, .ship-card, select, input[type='range'] {
+          transition: none !important;
+        }
+        #carousel-container {
+          scroll-behavior: auto !important;
         }
       }
     </style>
-    <script type="module" crossorigin="" src="/open-space-duel/assets/index-DSUEcGyW.js" integrity="sha384-RGRstOxNOO9tH7nWPgLMnNpi2UuH3GxGUwVUFNkshmg5NJM4reF4AB2aYIkGsSEB"></script>
-  <link rel="manifest" href="/open-space-duel/manifest.webmanifest" integrity="sha384-xr58TtmxL/1z8Xa+vVXyHNd2Khma6/I2ar87dZTwQ5R+Br23nlJI5B/xUgZJ5dEa" crossorigin="anonymous"></head>
+    <script type="module" crossorigin src="/open-space-duel/assets/index-Q6v9zteN.js"></script>
+  </head>
   <body>
     <div id="game-container">
-      <canvas id="side-art-left" class="side-art"></canvas>
+      <canvas id="side-art-left" class="side-art" aria-hidden="true"></canvas>
       <canvas id="game-canvas"></canvas>
-      <canvas id="side-art-right" class="side-art"></canvas>
+      <canvas id="side-art-right" class="side-art" aria-hidden="true"></canvas>
       <div id="ui-layer"></div>
     </div>
-
-  
-
-</body></html>
+  </body>
+</html>

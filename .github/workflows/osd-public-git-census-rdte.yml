@@ -1,0 +1,29 @@
+name: OSD public V1 nested-git census one-shot
+on:
+  push:
+    branches:
+      - rdte/osd-public-git-census-20261104
+    paths:
+      - .github/workflows/osd-public-git-census-rdte.yml
+permissions:
+  contents: read
+jobs:
+  public-source-boundary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Record exact source identity
+        shell: bash
+        run: |
+          git rev-parse HEAD
+          git hash-object .github/public-tests/verify-public-candidate.mjs
+          git hash-object .github/public-tests/verify-public-candidate.selfcheck.mjs
+          node --version
+      - name: Run dependency-free public-only negative and positive controls
+        run: node --test .github/public-tests/verify-public-candidate.selfcheck.mjs

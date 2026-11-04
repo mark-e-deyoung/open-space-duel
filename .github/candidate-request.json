@@ -1,7 +1,8 @@
 {
   "schemaVersion": 1,
-  "candidateRef": "candidate/rehearsal-positive-public-fixture-20260826-01",
+  "candidateRef": "candidate/osd-0.3.1-public-a11y-20261104",
   "browserIterations": 1,
-  "requestSequence": 4,
-  "purpose": "security-negative-control: previously published public fixture must fail source QA-hook boundary before dependency install"
+  "requestSequence": 5,
+  "candidateCommitSha": "d73b9b9f9f9942fcc9ed73109162b2e15576c789",
+  "purpose": "owner-authorized ordinary public-source OSD 0.3.1 build; $0 public GHA native checks and exact-artifact deployment only after green gates; no private source checkout or private test hooks"
 }

@@ -35,6 +35,12 @@ jobs:
           npm init -y >/dev/null
           npm install --no-save --ignore-scripts @playwright/test@1.59.1
           npx playwright install --with-deps "${{ matrix.browser }}"
+      - name: Record currently published version before interaction checks
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error \
+            https://mark-e-deyoung.github.io/open-space-duel/version.json
+          echo
       - name: Observe and exercise public deployed menu
         env:
           DEPLOYED_BASE_URL: https://mark-e-deyoung.github.io/open-space-duel/

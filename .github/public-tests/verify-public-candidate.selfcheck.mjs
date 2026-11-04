@@ -103,3 +103,108 @@ test('public package with safe build and lint scripts is accepted', () => {
     { build: 'tsc --noEmit && vite build', lint: 'eslint src', typecheck: 'tsc --noEmit' }));
   assert.equal(result.status, 0, result.log);
 });
+
+test('NUL-bearing candidate source cannot bypass public QA-marker scan', () => {
+  const content = Buffer.concat([
+    Buffer.from([0, 1]),
+    Buffer.from('window.__OSD_TEST_HOOKS__ = {};')
+  ]);
+  const result = check(fixture('nul-marker', content));
+  assert.equal(result.status, 1, result.log);
+  assert.match(result.log, /forbidden private\/restricted reference/);
+});
+
+test('NUL-bearing source cannot bypass synthetic token-pattern scan', () => {
+  const content = Buffer.concat([
+    Buffer.from([0, 1]),
+    Buffer.from('ghp_' + 'Z'.repeat(20))
+  ]);
+  const result = check(fixture('nul-pattern', content));
+  assert.equal(result.status, 1, result.log);
+  assert.match(result.log, /high-confidence secret pattern/);
+});
+
+test('benign reviewed binary with NUL is accepted when manifest matches bytes', () => {
+  const content = Buffer.from([0, 1, 2, 128, 255, 0, 3]);
+  const result = check(fixture('nul-benign', content));
+  assert.equal(result.status, 0, result.log);
+  assert.match(result.log, /Verified sanitized public candidate/);
+});
+
+
+test('interleaved NUL forbidden QA marker is denied in projected bytes', () => {
+  const marker = 'window.__OSD_TEST_HOOKS__ = {}';
+  const separator = String.fromCharCode(0);
+  const bytes = Buffer.from(marker.split('').join(separator) + separator);
+  const result = check(fixture('nul-interleaved-marker', bytes));
+  assert.equal(result.status, 1, result.log);
+  assert.match(result.log, new RegExp('forbidden private/restricted reference'));
+});
+
+test('UTF-16LE-like synthetic token pattern cannot bypass scan', () => {
+  const bytes = Buffer.from('ghp_' + 'Q'.repeat(20), 'utf16le');
+  const result = check(fixture('utf16le-synthetic-token', bytes));
+  assert.equal(result.status, 1, result.log);
+  assert.match(result.log, /high-confidence secret pattern/);
+});
+
+test('NUL-bearing benign split data with no marker remains accepted', () => {
+  const bytes = Buffer.from([97, 0, 98, 0, 99, 0]);
+  const result = check(fixture('nul-benign-split', bytes));
+  assert.equal(result.status, 0, result.log);
+});
+
+
+for (const [label, scripts] of [
+  ['auto-install', { postinstall: 'node -e "console.log(1)"' }],
+  ['auto-prebuild', { prebuild: 'node -e "console.log(1)"' }],
+  ['auto-prelint', { prelint: 'node -e "console.log(1)"' }],
+  ['build-command-drift', { build: 'node -e "console.log(1)"' }],
+  ['typecheck-command-drift', { typecheck: 'node -e "console.log(1)"' }],
+]) {
+  test('candidate must reject unreviewed npm execution surface: ' + label, () => {
+    const result = check(fixture('npm-' + label,
+      'export const ordinary = true;', scripts));
+    assert.equal(result.status, 1, result.log);
+    assert.match(result.log, /unsafe public npm script|unapproved npm script/);
+  });
+}
+
+
+for (const subdir of ['dist', 'node_modules']) {
+  test('undeclared pre-existing ' + subdir + ' content is rejected before build', () => {
+    const dir = fixture('preexisting-' + subdir.replaceAll('_', '-'));
+    mkdirSync(join(dir, subdir), { recursive: true });
+    writeFileSync(join(dir, subdir, 'unexpected-file.txt'), 'synthetic nonsecret payload');
+    const result = check(dir);
+    assert.equal(result.status, 1, result.log);
+    assert.match(result.log, /undeclared file|pre-existing directory/);
+  });
+}
+
+for (const nested of ['src/.git', 'src/nested/.git']) {
+  test('unmanifested nested Git metadata is rejected: ' + nested, () => {
+    const dir = fixture('nested-git-' + nested.replaceAll('/', '-'));
+    mkdirSync(join(dir, nested), { recursive: true });
+    writeFileSync(join(dir, nested, 'config'), 'synthetic nested metadata');
+    const result = check(dir);
+    assert.equal(result.status, 1, result.log);
+    assert.match(result.log, /unapproved \.git entry/);
+  });
+}
+
+test('ordinary root checkout metadata is excluded from candidate census', () => {
+  const dir = fixture('root-git-allowed');
+  mkdirSync(join(dir, '.git'), { recursive: true });
+  writeFileSync(join(dir, '.git', 'config'), 'synthetic checkout metadata');
+  const result = check(dir);
+  assert.equal(result.status, 0, result.log);
+});
+
+test('symlinked root Git metadata cannot bypass candidate census', () => {
+  const dir = fixture('root-git-symlink');
+  symlinkSync(scratch, join(dir, '.git'));
+  const result = check(dir);
+  assert.equal(result.status, 1, result.log);
+  assert.match(result.log, /unapproved \.git entry/);
+});

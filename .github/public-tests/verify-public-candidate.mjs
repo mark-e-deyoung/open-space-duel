@@ -14,9 +14,22 @@ function gitBlobSha1(data) {
 
 function walk(root, dir = root, out = []) {
   for (const name of readdirSync(dir).sort()) {
-    if (name === '.git' || name === 'node_modules' || name === 'dist') continue;
+    // The verifier runs before npm ci and build on a clean checkout.
+    // Pre-existing generated/install trees cannot be declared in the manifest
+    // under the existing policy and must not bypass its exact-file census.
     const path = join(dir, name);
     const stat = lstatSync(path);
+    // Only the checkout root's real .git directory is trusted metadata.
+    // Nested .git trees and root symlinks/files must not escape the census.
+    if (name === '.git') {
+      if (dir !== root || !stat.isDirectory() || stat.isSymbolicLink()) {
+        fail(`unapproved .git entry in candidate: ${relative(root, path)}`);
+      }
+      continue;
+    }
+    if (name === 'node_modules' || name === 'dist') {
+      fail(`pre-existing directory is not permitted: ${relative(root, path)}`);
+    }
     if (stat.isSymbolicLink()) fail(`symlink is not allowed: ${relative(root, path)}`);
     if (stat.isDirectory()) walk(root, path, out);
     else if (stat.isFile()) out.push(relative(root, path).split(sep).join('/'));
@@ -90,13 +103,23 @@ for (const [path, item] of declared) {
   const data = readFileSync(join(candidateRoot, path));
   if (gitBlobSha1(data) !== item.gitBlobSha1) fail(`Git blob identity mismatch for ${path}`);
   if (data.length !== item.bytes) fail(`size mismatch for ${path}`);
-  if (data.includes(0)) continue;
+  // A NUL byte must not exempt a projected file from forbidden-reference
+  // or ASCII-formatted secret checks. This applies to reviewed binary assets.
   const text = data.toString('utf8');
-  for (const needle of forbiddenText) {
-    if (text.includes(needle)) fail(`forbidden private/restricted reference in ${path}`);
-  }
-  for (const pattern of highConfidenceSecrets) {
-    if (pattern.test(text)) fail(`high-confidence secret pattern in ${path}`);
+  // Raw UTF-8 checks remain mandatory. Also inspect a NUL-elided view so
+  // zero-interleaved ASCII (including UTF-16-style content) cannot hide
+  // restricted markers or synthetic secret patterns in a declared blob.
+  // This is intentionally fail-closed even when the asset is reviewed binary.
+  const scanViews = data.includes(0)
+    ? [text, text.replaceAll(String.fromCharCode(0), '')]
+    : [text];
+  for (const view of scanViews) {
+    for (const needle of forbiddenText) {
+      if (view.includes(needle)) fail(`forbidden private/restricted reference in ${path}`);
+    }
+    for (const pattern of highConfidenceSecrets) {
+      if (pattern.test(view)) fail(`high-confidence secret pattern in ${path}`);
+    }
   }
 }
 
@@ -125,6 +148,23 @@ for (const [name, command] of Object.entries(pkg.scripts || {})) {
     /(?:^|\s)(?:tests|scripts)\//.test(command) ||
     /--mode\s+qualification\b/.test(command)) {
     fail(`public npm script references withheld source: ${name}`);
+  }
+}
+
+// Public projection defines exactly which package commands are allowed to run.
+// npm ci, npm run build/lint/typecheck, and npm lifecycle hooks all execute
+// package scripts. Reject undeclared hooks and command drift, not just
+// references to the omitted private scripts/ and tests/ trees.
+const approvedScripts = new Map([
+  ['dev', 'vite'],
+  ['preview', 'vite preview'],
+  ['lint', 'eslint src'],
+  ['typecheck', 'tsc --noEmit'],
+  ['build', 'tsc --noEmit && vite build'],
+]);
+for (const [name, command] of Object.entries(pkg.scripts || {})) {
+  if (approvedScripts.get(name) !== command) {
+    fail(`unapproved npm script in public candidate: ${name}`);
   }
 }
 

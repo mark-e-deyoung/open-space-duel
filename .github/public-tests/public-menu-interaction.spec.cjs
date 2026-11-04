@@ -87,13 +87,16 @@ test('public compact landscape geometry does not obscure config behind title or 
   await expect(title).toBeVisible();
   await expect(heading).toBeVisible();
   await expect(slider).toBeVisible();
-  // The pilot card owns the scrollable configuration region. Compare
-  // viewport geometry only after centering the slider inside that region.
-  // Without this, offscreen position is misreported as footer overlap.
+  // In a short landscape viewport, the heading and slider cannot both be
+  // on-screen at once. Validate the heading at the TOP scroll position,
+  // then center the slider and validate that it clears the fixed launcher.
+  const [titleBox, headingBox] = await Promise.all([
+    title.boundingBox(), heading.boundingBox()
+  ]);
   await slider.evaluate(el => el.scrollIntoView({ block: 'center', inline: 'nearest' }));
   await expect(slider).toBeInViewport();
-  const [titleBox, headingBox, sliderBox, launchBox] = await Promise.all([
-    title.boundingBox(), heading.boundingBox(), slider.boundingBox(), launch.boundingBox()
+  const [sliderBox, launchBox] = await Promise.all([
+    slider.boundingBox(), launch.boundingBox()
   ]);
   expect(titleBox).not.toBeNull();
   expect(headingBox).not.toBeNull();

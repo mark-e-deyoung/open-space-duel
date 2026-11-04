@@ -1,1 +1,0 @@
-if('serviceWorker' in navigator) {window.addEventListener('load', () => {navigator.serviceWorker.register('/open-space-duel/sw.js', { scope: '/open-space-duel/' })})}

@@ -1,7 +1,0 @@
-{
-  "schemaVersion": 1,
-  "candidateRef": "candidate/rehearsal-positive-public-fixture-20260826-01",
-  "browserIterations": 1,
-  "requestSequence": 4,
-  "purpose": "security-negative-control: previously published public fixture must fail source QA-hook boundary before dependency install"
-}

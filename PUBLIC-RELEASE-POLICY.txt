@@ -1,0 +1,4 @@
+OSD PUBLIC RELEASE POLICY V1 (2026-11-04)
+Promote only after the public source boundary verifier, dependency audit, lint, TypeScript build, and three-browser exact-artifact smoke tests succeed.
+Do not deploy failed or unverified builds. Preserve last known good Pages state and source/build receipts.
+New gameplay content remains independently reviewable and requires actual human and assistive-technology qualification before claiming accessibility conformance.

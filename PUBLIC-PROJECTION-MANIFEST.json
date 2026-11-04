@@ -1,0 +1,307 @@
+{
+  "schemaVersion": 2,
+  "publicRepository": "mark-e-deyoung/open-space-duel",
+  "qualificationClass": "ordinary",
+  "projectionPolicySha256": "ca5234697c0020a445bba29cc453402e69e8a9cc88c6381ae6c704de06296250",
+  "promotionPolicySha256": "ca5234697c0020a445bba29cc453402e69e8a9cc88c6381ae6c704de06296250",
+  "sourceCommitSha": "19eb3945677a76dd36b82af65422b68f51a9b95c",
+  "publicVersion": "0.3.1",
+  "projectionKind": "reviewed-browser-runtime-only",
+  "knownOverrides": [
+    "src/main.ts",
+    "src/sim/numeric.ts",
+    "src/game/audio/tauntSounds.ts"
+  ],
+  "files": [
+    {
+      "path": "eslint.config.mjs",
+      "gitBlobSha1": "f056c2d683fe4e5b73636ec60f84bdaba301a71a",
+      "bytes": 2060
+    },
+    {
+      "path": "index.html",
+      "gitBlobSha1": "d5c3c826201a1b4475e5f70ad57f1ecd841e8113",
+      "bytes": 4292
+    },
+    {
+      "path": "package-lock.json",
+      "gitBlobSha1": "c09762a5d57d31128ddb58d80083c5452195f5f9",
+      "bytes": 245218
+    },
+    {
+      "path": "package.json",
+      "gitBlobSha1": "92cc528c46baf148146753bed31eb90e60828471",
+      "bytes": 1362
+    },
+    {
+      "path": "packages/osd-protocol/src/messages.ts",
+      "gitBlobSha1": "41ecb491b5ed65f841a925db56d4b8c2fe450916",
+      "bytes": 8176
+    },
+    {
+      "path": "PUBLIC-RELEASE-POLICY.txt",
+      "gitBlobSha1": "10510e9a2c629453c39193e9c2070f0767b6a19e",
+      "bytes": 463
+    },
+    {
+      "path": "public/version.json",
+      "gitBlobSha1": "7a13eb1c46f0d52afb8647a942b1a7db8829a7e2",
+      "bytes": 25
+    },
+    {
+      "path": "src/game/audio/music.ts",
+      "gitBlobSha1": "0baa87c97a21d4e7e33baedfb860e5a46554e8e7",
+      "bytes": 8837
+    },
+    {
+      "path": "src/game/audio/sound.ts",
+      "gitBlobSha1": "91376682849a464a9d8e4183910cb9eed2cb76af",
+      "bytes": 6104
+    },
+    {
+      "path": "src/game/audio/tauntSounds.ts",
+      "gitBlobSha1": "05f1cb9c6dbf7d38e48b7e54a8a386fc761f265b",
+      "bytes": 250
+    },
+    {
+      "path": "src/game/engine/loop.ts",
+      "gitBlobSha1": "4aa730daae3fbf31fe54815977e87f721cf92900",
+      "bytes": 1284
+    },
+    {
+      "path": "src/game/engine/rng.ts",
+      "gitBlobSha1": "c8c22e4bbc6438e6d8b790f21689dfb0069c466f",
+      "bytes": 918
+    },
+    {
+      "path": "src/game/engine/state.ts",
+      "gitBlobSha1": "4d0f9febd28078bbff49138f1be67847b54516e5",
+      "bytes": 5124
+    },
+    {
+      "path": "src/game/engine/worldConfig.ts",
+      "gitBlobSha1": "e66a2e7bd6e1bd2eb9348b0c209d4389745268a0",
+      "bytes": 817
+    },
+    {
+      "path": "src/game/entities/asteroid.ts",
+      "gitBlobSha1": "f8e35482624aa3a9a24ff3754641508bad9dd011",
+      "bytes": 389
+    },
+    {
+      "path": "src/game/entities/booster.ts",
+      "gitBlobSha1": "928676e9315ab4904392d1e1c11464a64f082cf0",
+      "bytes": 1357
+    },
+    {
+      "path": "src/game/entities/gravityWell.ts",
+      "gitBlobSha1": "0c521e1b7ee339ffcb54a46efafa1ab686bde44e",
+      "bytes": 409
+    },
+    {
+      "path": "src/game/entities/planet.ts",
+      "gitBlobSha1": "4bc3623881793f5e66ff409e46bae3793280b18f",
+      "bytes": 321
+    },
+    {
+      "path": "src/game/entities/projectile.ts",
+      "gitBlobSha1": "c646a42c894eaac6fa9fbdda97b5bcd7d7d5543a",
+      "bytes": 672
+    },
+    {
+      "path": "src/game/entities/saucer.ts",
+      "gitBlobSha1": "22145e0f2b89ab48e93c12c15d4a549475a1c12c",
+      "bytes": 353
+    },
+    {
+      "path": "src/game/entities/ship.ts",
+      "gitBlobSha1": "27567c2d832768602f5ceb636a4aa13007407525",
+      "bytes": 3813
+    },
+    {
+      "path": "src/game/entities/spaceSnake.ts",
+      "gitBlobSha1": "7b5e5d8bdcf8b7241273b2c69345acc9474b968d",
+      "bytes": 1398
+    },
+    {
+      "path": "src/game/entities/spaceStorm.ts",
+      "gitBlobSha1": "2b6d81f927ab6838d9c3c7e409df3c1161e52b46",
+      "bytes": 359
+    },
+    {
+      "path": "src/game/input/control-map.json",
+      "gitBlobSha1": "258d8d60f7baf58a4d0517f9336add35ad6b586d",
+      "bytes": 1802
+    },
+    {
+      "path": "src/game/input/controlDocs.ts",
+      "gitBlobSha1": "67a13c1fe8828c0aeed39ea140a842248bcd4c5e",
+      "bytes": 1694
+    },
+    {
+      "path": "src/game/input/gamepad.ts",
+      "gitBlobSha1": "a2095a3f1e61c7ad0830f5052d647b5308c40cff",
+      "bytes": 7975
+    },
+    {
+      "path": "src/game/input/keyboard.ts",
+      "gitBlobSha1": "93e0bd5a1017cccefa2dbf3c7a6098588aef260b",
+      "bytes": 3414
+    },
+    {
+      "path": "src/game/net/lobby.ts",
+      "gitBlobSha1": "854670559b70350e3c5f7326a8f8010507c400b9",
+      "bytes": 5852
+    },
+    {
+      "path": "src/game/net/signaling.ts",
+      "gitBlobSha1": "26127b6d6da3c6b2bd31e3a5676d8a9bec20ec9c",
+      "bytes": 2470
+    },
+    {
+      "path": "src/game/net/sync.ts",
+      "gitBlobSha1": "308b8c86d455c3faa2407be36333cd86dca06680",
+      "bytes": 14115
+    },
+    {
+      "path": "src/game/net/trystero.ts",
+      "gitBlobSha1": "dd58f147f345c354a5d89ed717e4e5f7fcbdc850",
+      "bytes": 6705
+    },
+    {
+      "path": "src/game/net/webrtc.ts",
+      "gitBlobSha1": "f137208e413acb74f534e7172ccf62a0b5feea2a",
+      "bytes": 4395
+    },
+    {
+      "path": "src/game/render/canvas.ts",
+      "gitBlobSha1": "307235bf25e7fca7e6e74f06c202e4ed44598893",
+      "bytes": 12945
+    },
+    {
+      "path": "src/game/systems/collision.ts",
+      "gitBlobSha1": "3625fef81df56ef377c665ae71101a7d12ce2afe",
+      "bytes": 22422
+    },
+    {
+      "path": "src/game/systems/physics.ts",
+      "gitBlobSha1": "3091293b09a57671c6fbfbc84197abd18609e2e1",
+      "bytes": 23575
+    },
+    {
+      "path": "src/main.ts",
+      "gitBlobSha1": "7c054f0c76964e2f7a327886ab269a7a500b1829",
+      "bytes": 46468
+    },
+    {
+      "path": "src/network/friends.ts",
+      "gitBlobSha1": "b86a03709bfb8a00bee90c7f63a041007ec5750e",
+      "bytes": 7014
+    },
+    {
+      "path": "src/network/passcodeClient.ts",
+      "gitBlobSha1": "1500091eac55d6c41db237b474b1b00d08e4f83e",
+      "bytes": 1861
+    },
+    {
+      "path": "src/network/peerV1Client.ts",
+      "gitBlobSha1": "5cc14a2e3ba4476daad48e816c25bf076fa39f3b",
+      "bytes": 5218
+    },
+    {
+      "path": "src/network/remoteDuelHost.ts",
+      "gitBlobSha1": "e49bf538685bc571d6d8b8f155cab2e065f41ad2",
+      "bytes": 6292
+    },
+    {
+      "path": "src/network/scoresClient.ts",
+      "gitBlobSha1": "fd34d8a2f9c25bc85306db1364f3be52635133c7",
+      "bytes": 7331
+    },
+    {
+      "path": "src/network/spectateClient.ts",
+      "gitBlobSha1": "c0733775a82bcda615c28fbfa0baf323a6031c3b",
+      "bytes": 2603
+    },
+    {
+      "path": "src/shared/README.md",
+      "gitBlobSha1": "bee1eb73540204b09f58251958a90d7ab533b3b8",
+      "bytes": 1176
+    },
+    {
+      "path": "src/sim/checksum.ts",
+      "gitBlobSha1": "10b9253e2e9fbc4bb9f9c905ccda521cfb1e1be9",
+      "bytes": 2292
+    },
+    {
+      "path": "src/sim/numeric.ts",
+      "gitBlobSha1": "58af8f3321e30d019629cc7eaf6cbec6da8a6c6f",
+      "bytes": 1686
+    },
+    {
+      "path": "src/sim/prng.ts",
+      "gitBlobSha1": "c3ed3379669824bb07c89dce5452ebaeda787d4d",
+      "bytes": 833
+    },
+    {
+      "path": "src/ui/controlCalibration.ts",
+      "gitBlobSha1": "43c9aad12763ae33b78b883bf2ea95b876553bd7",
+      "bytes": 19529
+    },
+    {
+      "path": "src/ui/hud.ts",
+      "gitBlobSha1": "e452d7ea957e2fc86ac6366f860a080b2e268dc1",
+      "bytes": 11774
+    },
+    {
+      "path": "src/ui/joypad.ts",
+      "gitBlobSha1": "de84c0c13deba9d3864f96071610464839be7f50",
+      "bytes": 26182
+    },
+    {
+      "path": "src/ui/menu.ts",
+      "gitBlobSha1": "af0b2ad07ca280b9517e05aa694f8ec9088ff597",
+      "bytes": 86710
+    },
+    {
+      "path": "src/ui/overlay.ts",
+      "gitBlobSha1": "a36a850d54e89dc238860f5fdc6e1dd33ba7bdd4",
+      "bytes": 19701
+    },
+    {
+      "path": "src/ui/sideArt.ts",
+      "gitBlobSha1": "fa7268f92951ac80af157abc12d6f88bd602d667",
+      "bytes": 5096
+    },
+    {
+      "path": "src/ui/spectateView.ts",
+      "gitBlobSha1": "369ca6d83ba02208b005ca55666d9a87d16eedc2",
+      "bytes": 5039
+    },
+    {
+      "path": "src/utils/diagnostics.ts",
+      "gitBlobSha1": "d6d6aa60478519f6f4737aeafadfbbe4009446ed",
+      "bytes": 3491
+    },
+    {
+      "path": "src/utils/identity.ts",
+      "gitBlobSha1": "1e87204b918a1c42b083295ce896e4d951f9da2a",
+      "bytes": 1981
+    },
+    {
+      "path": "src/utils/telemetryCollector.ts",
+      "gitBlobSha1": "d43fa8c2789ee394cd35a0d08e8d199e422a630b",
+      "bytes": 4431
+    },
+    {
+      "path": "tsconfig.json",
+      "gitBlobSha1": "a9f64e728673e82a0bd8bec8ac3d317d41687218",
+      "bytes": 595
+    },
+    {
+      "path": "vite.config.mts",
+      "gitBlobSha1": "310bcfddc32b48f827a21b12ea4c0893be18776c",
+      "bytes": 792
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "keyboard": {
+    "standard": {
+      "thrust": { "codes": ["ArrowUp", "KeyW"], "keys": ["w", "W"], "label": "W / ↑" },
+      "left": { "codes": ["ArrowLeft", "KeyA"], "keys": ["a", "A"], "label": "A / ←" },
+      "right": { "codes": ["ArrowRight", "KeyD"], "keys": ["d", "D"], "label": "D / →" },
+      "fire": { "codes": ["Space", "KeyJ"], "keys": [" ", "j", "J"], "label": "Space / J" },
+      "fireSecondary": { "codes": ["KeyX", "KeyL"], "keys": ["x", "X", "l", "L"], "label": "X / L" },
+      "shield": { "codes": ["ShiftLeft", "KeyK"], "keys": ["Shift", "k", "K"], "label": "Shift / K" },
+      "pause": { "codes": ["Escape"], "keys": ["Escape"], "label": "Esc" }
+    },
+    "localPlayer1": {
+      "thrust": { "codes": ["KeyW"], "keys": [], "label": "W" },
+      "left": { "codes": ["KeyA"], "keys": [], "label": "A" },
+      "right": { "codes": ["KeyD"], "keys": [], "label": "D" },
+      "fire": { "codes": ["Space", "KeyF"], "keys": [], "label": "Space / F" },
+      "fireSecondary": { "codes": ["KeyX", "KeyR"], "keys": [], "label": "X / R" },
+      "shield": { "codes": ["ShiftLeft", "KeyQ"], "keys": [], "label": "Left Shift / Q" },
+      "pause": { "codes": ["Escape"], "keys": [], "label": "Esc" }
+    },
+    "localPlayer2": {
+      "thrust": { "codes": ["ArrowUp"], "keys": [], "label": "↑" },
+      "left": { "codes": ["ArrowLeft"], "keys": [], "label": "←" },
+      "right": { "codes": ["ArrowRight"], "keys": [], "label": "→" },
+      "fire": { "codes": ["Enter", "KeyM"], "keys": [], "label": "Enter / M" },
+      "fireSecondary": { "codes": ["KeyK", "Comma"], "keys": [], "label": "K / ," },
+      "shield": { "codes": ["KeyL", "Period"], "keys": [], "label": "L / ." },
+      "pause": { "codes": [], "keys": [], "label": "—" }
+    }
+  }
+}

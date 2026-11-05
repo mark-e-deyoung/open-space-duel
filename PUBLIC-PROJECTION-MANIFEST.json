@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "publicRepository": "mark-e-deyoung/open-space-duel",
-  "qualificationClass": "private-required",
+  "qualificationClass": "ordinary",
   "projectionPolicySha256": "ca5234697c0020a445bba29cc453402e69e8a9cc88c6381ae6c704de06296250",
   "promotionPolicySha256": "ca5234697c0020a445bba29cc453402e69e8a9cc88c6381ae6c704de06296250",
   "sourceCommitSha": "19eb3945677a76dd36b82af65422b68f51a9b95c",

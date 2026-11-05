@@ -1,16 +1,21 @@
 {
   "schemaVersion": 2,
   "publicRepository": "mark-e-deyoung/open-space-duel",
-  "qualificationClass": "ordinary",
+  "qualificationClass": "private-required",
   "projectionPolicySha256": "ca5234697c0020a445bba29cc453402e69e8a9cc88c6381ae6c704de06296250",
   "promotionPolicySha256": "ca5234697c0020a445bba29cc453402e69e8a9cc88c6381ae6c704de06296250",
   "sourceCommitSha": "19eb3945677a76dd36b82af65422b68f51a9b95c",
-  "publicVersion": "0.3.1",
+  "publicVersion": "0.3.2",
   "projectionKind": "reviewed-browser-runtime-only",
   "knownOverrides": [
     "src/main.ts",
     "src/sim/numeric.ts",
-    "src/game/audio/tauntSounds.ts"
+    "src/game/audio/tauntSounds.ts",
+    "src/game/engine/state.ts",
+    "src/game/entities/ship.ts",
+    "src/game/systems/physics.ts",
+    "src/game/render/canvas.ts",
+    "src/ui/hud.ts"
   ],
   "files": [
     {
@@ -25,12 +30,12 @@
     },
     {
       "path": "package-lock.json",
-      "gitBlobSha1": "3b6b9792d56b528bce3dd223cf900204e6038531",
+      "gitBlobSha1": "c3b6c39416e8a6a9b2f7f36cf1229de7b50fd482",
       "bytes": 245218
     },
     {
       "path": "package.json",
-      "gitBlobSha1": "f48fb1644ff2e901b814a97c9f7d53c61bdf6e09",
+      "gitBlobSha1": "6b77b3a415ced6c8467ec6e9f1d3210b36201408",
       "bytes": 1362
     },
     {
@@ -45,7 +50,7 @@
     },
     {
       "path": "public/version.json",
-      "gitBlobSha1": "7a13eb1c46f0d52afb8647a942b1a7db8829a7e2",
+      "gitBlobSha1": "58c4f2fcd0dfc4d2c68b5f1a0cff77077f4b5698",
       "bytes": 25
     },
     {
@@ -75,8 +80,8 @@
     },
     {
       "path": "src/game/engine/state.ts",
-      "gitBlobSha1": "4d0f9febd28078bbff49138f1be67847b54516e5",
-      "bytes": 5124
+      "gitBlobSha1": "2b6c567c464a54032cec5c29ce92962eaafe6474",
+      "bytes": 5305
     },
     {
       "path": "src/game/engine/worldConfig.ts",
@@ -115,8 +120,8 @@
     },
     {
       "path": "src/game/entities/ship.ts",
-      "gitBlobSha1": "27567c2d832768602f5ceb636a4aa13007407525",
-      "bytes": 3813
+      "gitBlobSha1": "d2fa0c7eae4a80cb0ffb37641ec2640ba32994f4",
+      "bytes": 3929
     },
     {
       "path": "src/game/entities/spaceSnake.ts",
@@ -175,8 +180,8 @@
     },
     {
       "path": "src/game/render/canvas.ts",
-      "gitBlobSha1": "307235bf25e7fca7e6e74f06c202e4ed44598893",
-      "bytes": 12945
+      "gitBlobSha1": "c10666c628eb3b1472e1d876a5c01c8af45585e9",
+      "bytes": 13522
     },
     {
       "path": "src/game/systems/collision.ts",
@@ -185,8 +190,8 @@
     },
     {
       "path": "src/game/systems/physics.ts",
-      "gitBlobSha1": "3091293b09a57671c6fbfbc84197abd18609e2e1",
-      "bytes": 23575
+      "gitBlobSha1": "b3f523b331b503d2f699b9a002b06a002a9905b6",
+      "bytes": 24748
     },
     {
       "path": "src/main.ts",
@@ -250,8 +255,8 @@
     },
     {
       "path": "src/ui/hud.ts",
-      "gitBlobSha1": "e452d7ea957e2fc86ac6366f860a080b2e268dc1",
-      "bytes": 11774
+      "gitBlobSha1": "860a943e19ca418f8ddf0e4a481d06e8680f676f",
+      "bytes": 12224
     },
     {
       "path": "src/ui/joypad.ts",
@@ -294,6 +299,11 @@
       "bytes": 4431
     },
     {
+      "path": "tests/steering-energy.test.ts",
+      "gitBlobSha1": "4f42d805dbdd52c97800deb09e895cc147feffb1",
+      "bytes": 6975
+    },
+    {
       "path": "tsconfig.json",
       "gitBlobSha1": "a9f64e728673e82a0bd8bec8ac3d317d41687218",
       "bytes": 595
@@ -320,5 +330,7 @@
         "GHSA-rxp7-6hxx-x8q5"
       ]
     }
-  ]
+  ],
+  "feature": "steering RCS/energy public build rehearsal",
+  "sourceReconciliation": "pending"
 }

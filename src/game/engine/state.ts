@@ -53,6 +53,8 @@ export interface ShipStats {
   maxEnergy: number;
   rechargeRate: number;
   thrustCost: number;
+  /** Energy units per second at full steering rate. */
+  steeringCost: number;
   shieldCost: number;
   primaryColor: string;
   secondaryColor: string;
@@ -76,6 +78,8 @@ export interface Entity {
   maxEnergy?: number;
   isShieldActive?: boolean;
   isThrusting?: boolean;
+  /** Signed paid attitude maneuver: -1 left, +1 right, 0 idle. */
+  steeringDirection?: -1 | 0 | 1;
   shipClass?: ShipClass;
   stats?: ShipStats;
   primaryCooldown?: number;

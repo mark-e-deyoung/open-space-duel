@@ -172,7 +172,8 @@ export function updatePhysics(
         !entity.isShieldActive
       ) {
         const rechargeRate =
-          stats.rechargeRate * (entity.isThrusting ? 0.5 : 1.0);
+          stats.rechargeRate *
+            (entity.isThrusting || entity.steeringDirection ? 0.5 : 1.0);
         entity.energy = Math.min(
           entity.maxEnergy,
           entity.energy + rechargeRate * dt,
@@ -190,21 +191,26 @@ export function updatePhysics(
         entity.velocity.y = 0;
       }
 
-      const hasEnergy = (entity.energy ?? 0) > 0;
       const torpedoBooster = active.find(
         (b) => b.type === BoosterType.VectorTorpedo && (b.charges ?? 0) > 0,
       );
 
-      if (input.targetRotation !== undefined) {
-        let diff = input.targetRotation - entity.rotation;
-        while (diff < -Math.PI) diff += Math.PI * 2;
-        while (diff > Math.PI) diff -= Math.PI * 2;
-        const step = stats.rotationSpeed * dt;
-        if (Math.abs(diff) < step) entity.rotation = input.targetRotation;
-        else entity.rotation += Math.sign(diff) * step;
-      } else {
-        if (input.left) entity.rotation -= stats.rotationSpeed * dt;
-        if (input.right) entity.rotation += stats.rotationSpeed * dt;
+      // Commanded attitude changes require front maneuvering thrusters.
+      // A gravity/collision velocity impulse never enters this path.
+      const turnRate = Math.max(0, stats.rotationSpeed);
+      const fullTurn = turnRate * Math.max(0, dt);
+      let requestedTurn = 0;
+      if (
+        typeof input.targetRotation === 'number' &&
+        Number.isFinite(input.targetRotation)
+      ) {
+        const difference = Math.atan2(
+          Math.sin(input.targetRotation - entity.rotation),
+          Math.cos(input.targetRotation - entity.rotation),
+        );
+        requestedTurn = Math.sign(difference) * Math.min(Math.abs(difference), fullTurn);
+      } else if (input.left !== input.right) {
+        requestedTurn = (input.right ? 1 : -1) * fullTurn;
       }
 
       entity.isShieldActive = input.shield && (entity.energy ?? 0) > 5;
@@ -216,16 +222,32 @@ export function updatePhysics(
         if (state.tick % 5 === 0) onSound?.('shield');
       }
 
-      entity.isThrusting = input.thrust && hasEnergy && !entity.isShieldActive;
+      // Shield pays first. Turn and translation then draw separately from
+      // the remaining shared capacitor. Underfunded burns are proportional.
+      entity.steeringDirection = 0;
+      if (requestedTurn !== 0 && turnRate > 0) {
+        const desiredCost = stats.steeringCost * (Math.abs(requestedTurn) / turnRate);
+        const available = Math.max(0, entity.energy ?? 0);
+        const fraction = desiredCost > 0 ? Math.min(1, available / desiredCost) : 0;
+        if (fraction > 0) {
+          const appliedTurn = requestedTurn * fraction;
+          entity.rotation += appliedTurn;
+          entity.energy = Math.max(0, available - desiredCost * fraction);
+          entity.steeringDirection = appliedTurn > 0 ? 1 : -1;
+        }
+      }
+
+      const thrustCost = Math.max(0, stats.thrustCost * dt);
+      const thrustEnergy = Math.max(0, entity.energy ?? 0);
+      const throttle = thrustCost > 0 ? Math.min(1, thrustEnergy / thrustCost) : 0;
+      entity.isThrusting = !!input.thrust && !entity.isShieldActive &&
+        dt > 0 && throttle > 0;
       if (entity.isThrusting) {
         entity.velocity.x +=
-          Math.cos(entity.rotation) * stats.acceleration * dt;
+          Math.cos(entity.rotation) * stats.acceleration * dt * throttle;
         entity.velocity.y +=
-          Math.sin(entity.rotation) * stats.acceleration * dt;
-        entity.energy = Math.max(
-          0,
-          (entity.energy ?? 0) - stats.thrustCost * dt,
-        );
+          Math.sin(entity.rotation) * stats.acceleration * dt * throttle;
+        entity.energy = Math.max(0, thrustEnergy - thrustCost * throttle);
         if (state.tick % 5 === 0) onSound?.('thrust');
         if (state.tick % 2 === 0) {
           state.particles.push({

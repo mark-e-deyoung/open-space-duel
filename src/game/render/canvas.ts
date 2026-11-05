@@ -131,15 +131,29 @@ export class CanvasRenderer {
           this.ctx.restore();
         }
 
-        // Draw Engine Flame
-        if (entity.isThrusting && Math.random() > 0.3) {
+        // Rear burn is intentional; ambient forces never activate it.
+        if (entity.isThrusting) {
           this.ctx.save();
           this.ctx.strokeStyle = '#ff6600';
           this.ctx.shadowColor = '#ff6600';
           this.ctx.lineWidth = 2;
           this.ctx.beginPath();
           this.ctx.moveTo(-5, 0);
-          this.ctx.lineTo(-15 - Math.random() * 10, 0);
+          this.ctx.lineTo(-15 - (state.tick % 4) * 2, 0);
+          this.ctx.stroke();
+          this.ctx.restore();
+        }
+
+        // Directional cyan jets at the nose show paid yaw commands.
+        // A clockwise turn exhausts upward; left turn exhausts down.
+        if (entity.steeringDirection) {
+          const side = entity.steeringDirection > 0 ? -1 : 1;
+          this.ctx.save();
+          this.ctx.strokeStyle = '#65d9ff';
+          this.ctx.lineWidth = 2.5;
+          this.ctx.beginPath();
+          this.ctx.moveTo(8, side * 3);
+          this.ctx.lineTo(9, side * (10 + (state.tick % 3) * 2));
           this.ctx.stroke();
           this.ctx.restore();
         }

@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "candidateRef": "candidate/osd-0.3.1-public-a11y-20261104",
+  "candidateRef": "candidate/osd-0.3.2-rcs-steering-20261105",
+  "candidateCommitSha": "251f04d83b894c892ab74f25c876e0c05f514c86",
   "browserIterations": 1,
-  "requestSequence": 6,
-  "candidateCommitSha": "f5a676f61ee5567bb3243e6a13f2ae914810235a",
-  "purpose": "Public OSD 0.3.1 production audit correction fflate 0.8.3 and ip-address 10.7.5; first failure preserved in Actions 41900749734; preserve exact source/build/browser/deploy gates"
+  "requestSequence": 7,
+  "purpose": "Owner-authorized non-sensitive public source; no-deploy 0.3.2 RCS maneuver energy native regression, typecheck, three-browser exact-artifact rehearsal; preserve ordinary release gate"
 }

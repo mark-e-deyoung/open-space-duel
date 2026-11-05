@@ -111,6 +111,12 @@ jobs:
       - name: Typecheck
         working-directory: candidate
         run: npm run typecheck
+      - name: Steering and propulsion regression tests
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          test -f tests/steering-energy.test.ts
+          npx --no-install vitest run tests/steering-energy.test.ts --reporter=verbose
       - name: Production build
         working-directory: candidate
         run: npm run build

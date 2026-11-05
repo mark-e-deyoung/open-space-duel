@@ -3,6 +3,6 @@
   "candidateRef": "candidate/osd-0.3.2-rcs-steering-20261105",
   "candidateCommitSha": "251f04d83b894c892ab74f25c876e0c05f514c86",
   "browserIterations": 1,
-  "requestSequence": 7,
-  "purpose": "Owner-authorized non-sensitive public source; no-deploy 0.3.2 RCS maneuver energy native regression, typecheck, three-browser exact-artifact rehearsal; preserve ordinary release gate"
+  "requestSequence": 8,
+  "purpose": "RCS 0.3.2 no-deploy live gameplay HTML5 Canvas pixel+HUD probe across Chromium Firefox WebKit; all earlier native gates remain required"
 }

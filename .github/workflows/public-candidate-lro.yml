@@ -27,16 +27,20 @@ concurrency:
 jobs:
   resolve-request:
     name: Resolve immutable candidate request
+    # Manual dispatch MUST target the trusted release-control branch;
+    # no candidate/scratch branch may exercise the publishing control plane.
+    if: github.ref == 'refs/heads/release-control'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       candidate_ref: ${{ steps.resolve.outputs.candidate_ref }}
+      candidate_sha: ${{ steps.resolve.outputs.candidate_sha }}
       browser_iterations: ${{ steps.resolve.outputs.browser_iterations }}
     steps:
       - name: Checkout trusted public control plane
         uses: actions/checkout@v6
         with:
-          ref: release-control
+          ref: ${{ github.sha }}
           persist-credentials: false
       - name: Resolve request
         id: resolve
@@ -53,15 +57,30 @@ jobs:
             CANDIDATE_REF=$(node -e "const r=require('./.github/candidate-request.json'); process.stdout.write(r.candidateRef || '')")
             ITERATIONS=$(node -e "const r=require('./.github/candidate-request.json'); process.stdout.write(String(r.browserIterations || 6))")
           fi
+          # Restrict to a real single Git branch under candidate/; reject shell
+          # metacharacters, wildcard refs and ref normalization ambiguities.
           case "$CANDIDATE_REF" in candidate/*) ;; *) echo 'candidate_ref must start with candidate/' >&2; exit 1;; esac
+          git check-ref-format "refs/heads/${CANDIDATE_REF}"
+          case "$CANDIDATE_REF" in *'..'*|*'@{'*|*'//'*) echo 'ambiguous candidate ref' >&2; exit 1;; esac
           case "$ITERATIONS" in ''|*[!0-9]*) echo 'browser_iterations must be an integer' >&2; exit 1;; esac
           if [ "$ITERATIONS" -lt 1 ] || [ "$ITERATIONS" -gt 50 ]; then
             echo 'browser_iterations must be 1-50' >&2
             exit 1
           fi
+          # Freeze the remote branch head ONCE and pass its exact commit SHA
+          # to every subsequent checkout. A mutable ref must never be
+          # re-resolved in a later build/validation job (TOCTOU boundary).
+          REMOTE_REF="refs/heads/${CANDIDATE_REF}"
+          REMOTE_LINE=$(git ls-remote --exit-code "https://github.com/${GITHUB_REPOSITORY}.git" "$REMOTE_REF")
+          read -r CANDIDATE_SHA MATCHED_REF <<< "$REMOTE_LINE"
+          if [[ ! "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]] || [ "$MATCHED_REF" != "$REMOTE_REF" ]; then
+            echo 'Expected one exact SHA-1 commit for requested public candidate branch' >&2
+            exit 1
+          fi
           echo "candidate_ref=$CANDIDATE_REF" >> "$GITHUB_OUTPUT"
+          echo "candidate_sha=$CANDIDATE_SHA" >> "$GITHUB_OUTPUT"
           echo "browser_iterations=$ITERATIONS" >> "$GITHUB_OUTPUT"
-          echo "Resolved $CANDIDATE_REF with $ITERATIONS browser iterations"
+          echo "Pinned $CANDIDATE_REF to $CANDIDATE_SHA with $ITERATIONS browser iterations"
 
   validate-build:
     name: Verify, audit, lint, typecheck, build once
@@ -76,13 +95,13 @@ jobs:
       - name: Checkout public harness
         uses: actions/checkout@v6
         with:
-          ref: release-control
+          ref: ${{ github.sha }}
           path: harness
           persist-credentials: false
-      - name: Checkout sanitized candidate
+      - name: Checkout exact sanitized candidate commit
         uses: actions/checkout@v6
         with:
-          ref: ${{ needs.resolve-request.outputs.candidate_ref }}
+          ref: ${{ needs.resolve-request.outputs.candidate_sha }}
           path: candidate
           persist-credentials: false
       - uses: actions/setup-node@v6
@@ -150,6 +169,10 @@ jobs:
           BUNDLE_SHA=$(sha256sum build-artifact/osd-spa.tar.gz | awk '{print $1}')
           MANIFEST_SHA=$(sha256sum candidate/PUBLIC-PROJECTION-MANIFEST.json | awk '{print $1}')
           CANDIDATE_SHA=$(git -C candidate rev-parse HEAD)
+          test "$CANDIDATE_SHA" = "${{ needs.resolve-request.outputs.candidate_sha }}" || {
+            echo 'Candidate changed between reference resolution and build' >&2
+            exit 1
+          }
           HARNESS_SHA=$(git -C harness rev-parse HEAD)
           QUALIFICATION_CLASS=$(node -e "const m=require('./candidate/PUBLIC-PROJECTION-MANIFEST.json'); process.stdout.write(m.qualificationClass)")
           PROJECTION_POLICY_SHA=$(node -e "const m=require('./candidate/PUBLIC-PROJECTION-MANIFEST.json'); process.stdout.write(m.projectionPolicySha256)")
@@ -207,7 +230,7 @@ jobs:
       - name: Checkout public harness only
         uses: actions/checkout@v6
         with:
-          ref: release-control
+          ref: ${{ github.sha }}
           path: harness
           persist-credentials: false
       - name: Download exact build artifact
@@ -267,7 +290,7 @@ jobs:
       - name: Checkout trusted public control plane
         uses: actions/checkout@v6
         with:
-          ref: release-control
+          ref: ${{ github.sha }}
           path: harness
           persist-credentials: false
       - name: Download exact tested build artifact

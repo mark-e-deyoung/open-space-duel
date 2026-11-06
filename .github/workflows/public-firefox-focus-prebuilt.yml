@@ -27,6 +27,9 @@ jobs:
           test -d /ms-playwright
       - name: Capture public focus-route and geometry without test hooks
         shell: bash
+        # Root-run Playwright container requires HOME owned by root for Firefox.
+        env:
+          HOME: /root
         run: |
           set -euo pipefail
           node <<'NODE'

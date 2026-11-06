@@ -27,6 +27,9 @@ concurrency:
 jobs:
   resolve-request:
     name: Resolve immutable candidate request
+    # Manual dispatch MUST target the trusted release-control branch;
+    # no candidate/scratch branch may exercise the publishing control plane.
+    if: github.ref == 'refs/heads/release-control'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -37,7 +40,7 @@ jobs:
       - name: Checkout trusted public control plane
         uses: actions/checkout@v6
         with:
-          ref: release-control
+          ref: ${{ github.sha }}
           persist-credentials: false
       - name: Resolve request
         id: resolve
@@ -92,7 +95,7 @@ jobs:
       - name: Checkout public harness
         uses: actions/checkout@v6
         with:
-          ref: release-control
+          ref: ${{ github.sha }}
           path: harness
           persist-credentials: false
       - name: Checkout exact sanitized candidate commit
@@ -227,7 +230,7 @@ jobs:
       - name: Checkout public harness only
         uses: actions/checkout@v6
         with:
-          ref: release-control
+          ref: ${{ github.sha }}
           path: harness
           persist-credentials: false
       - name: Download exact build artifact
@@ -287,7 +290,7 @@ jobs:
       - name: Checkout trusted public control plane
         uses: actions/checkout@v6
         with:
-          ref: release-control
+          ref: ${{ github.sha }}
           path: harness
           persist-credentials: false
       - name: Download exact tested build artifact

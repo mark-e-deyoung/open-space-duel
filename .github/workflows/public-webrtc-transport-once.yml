@@ -1,0 +1,77 @@
+name: Public OSD WebRTC free-tier transport differential (one shot)
+
+# Public-only capability check: no private source, release, deployment, or secrets.
+on:
+  push:
+    branches: [rdte/osd-public-webrtc-transport-20261115]
+    paths:
+      - .github/workflows/public-webrtc-transport-once.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: osd-public-webrtc-transport-once-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  two-context-datachannel:
+    name: ${{ matrix.browser }} isolated public WebRTC transport
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox]
+    steps:
+      - name: Checkout public RDTE harness
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Start disposable local static origin
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/osd-public-webrtc-static
+          printf '%s\n' '<!doctype html><html><title>Public WebRTC transport RDTE</title></html>' > /tmp/osd-public-webrtc-static/index.html
+          python3 -m http.server 4174 --bind 127.0.0.1 --directory /tmp/osd-public-webrtc-static >/tmp/osd-public-webrtc-server.log 2>&1 &
+          echo $! > /tmp/osd-public-webrtc-server.pid
+          for n in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:4174/ >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/osd-public-webrtc-server.log
+          exit 1
+      - name: Install public browser tooling with no lifecycle scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.59.1
+          npx playwright install --with-deps "${{ matrix.browser }}"
+      - name: Exercise REAL separate browser contexts and two-way RTCDataChannel
+        shell: bash
+        run: >-
+          npx playwright test
+          .github/public-tests/webrtc-transport-free-tier.spec.cjs
+          --config=.github/public-tests/playwright.config.cjs
+          --project="${{ matrix.browser }}"
+      - name: Upload public-only failure trace
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: osd-webrtc-${{ matrix.browser }}-${{ github.run_id }}
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 3
+      - name: Stop disposable local origin
+        if: always()
+        shell: bash
+        run: |
+          if [ -f /tmp/osd-public-webrtc-server.pid ]; then
+            kill "$(cat /tmp/osd-public-webrtc-server.pid)" 2>/dev/null || true
+          fi

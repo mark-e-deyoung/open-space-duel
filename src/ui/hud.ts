@@ -222,6 +222,8 @@ export class HUD {
     ship: {
       stats?: { primaryColor?: string };
       isShieldActive?: boolean;
+      isThrusting?: boolean;
+      steeringDirection?: -1 | 0 | 1;
       invulnerabilityTimer?: number;
       energy?: number;
       maxEnergy?: number;
@@ -235,12 +237,18 @@ export class HUD {
       Math.min(100, ((ship.energy ?? 0) / (ship.maxEnergy ?? 100)) * 100),
     );
     const barColor = pct > 40 ? color : pct > 15 ? '#ffaa00' : '#ff3333';
+    const propulsion = [
+      ship.isThrusting ? 'FORWARD THRUST' : '',
+      ship.steeringDirection === -1 ? 'TURN LEFT' :
+        ship.steeringDirection === 1 ? 'TURN RIGHT' : '',
+    ].filter(Boolean).join(' + ');
     return `
       <div style="position: absolute; bottom: 60px; ${positionStyle}; pointer-events: none; width: 180px;">
         <div style="font-size: 10px; color: #888; text-align: center; margin-bottom: 2px;">ENERGY</div>
         <div style="height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden;">
           <div style="height: 100%; width: ${pct}%; background: ${barColor}; border-radius: 3px; transition: width 0.1s, background 0.3s;"></div>
         </div>
+        ${propulsion ? `<div data-testid="propulsion-state" style="font-size: 10px; color: #65d9ff; text-align: center; margin-top: 2px;">${propulsion}</div>` : ''}
         ${ship.isShieldActive ? `<div style="font-size: 10px; color: ${color}; text-align: center; margin-top: 2px;">🛡 SHIELD</div>` : ''}
         ${(ship.invulnerabilityTimer ?? 0) > 0 ? '<div style="font-size: 10px; color: #ffcc00; text-align: center; margin-top: 2px;">✨ RESPAWN</div>' : ''}
       </div>

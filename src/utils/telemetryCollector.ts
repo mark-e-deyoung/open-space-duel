@@ -29,6 +29,22 @@ export interface TelemetryEvent {
   n?: number;
 }
 
+/** Public-safe deterministic session classification, with no collector internals. */
+export function classifySessionVisit(
+  previousVisit: string | null,
+  nowMs: number,
+): { eventType: 'session_start' | 'return_visit'; daysSince?: number } {
+  if (!previousVisit) return { eventType: 'session_start' };
+  const timestamp = /^[0-9]+$/.test(previousVisit) ? Number(previousVisit) : NaN;
+  const valid =
+    Number.isSafeInteger(timestamp) && timestamp > 0 &&
+    Number.isSafeInteger(nowMs) && nowMs >= timestamp;
+  return {
+    eventType: 'return_visit',
+    ...(valid ? { daysSince: Math.round((nowMs - timestamp) / 86400000) } : {}),
+  };
+}
+
 const MAX_EVENTS = 50;
 const BATCH_SIZE = 20;
 const FLUSH_INTERVAL_MS = 5 * 60 * 1000; // 5 min

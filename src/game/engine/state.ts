@@ -1,3 +1,5 @@
+import { isFlightMode, type FlightMode } from '../flightMode';
+
 export interface Vector2 {
   x: number;
   y: number;
@@ -53,7 +55,7 @@ export interface ShipStats {
   maxEnergy: number;
   rechargeRate: number;
   thrustCost: number;
-  /** Energy units per second at full steering rate. */
+  /** Energy per second of sustained maximum-rate heading change. */
   steeringCost: number;
   shieldCost: number;
   primaryColor: string;
@@ -78,8 +80,10 @@ export interface Entity {
   maxEnergy?: number;
   isShieldActive?: boolean;
   isThrusting?: boolean;
-  /** Signed paid attitude maneuver: -1 left, +1 right, 0 idle. */
+  /** Actual energy-funded nose maneuver, not velocity from gravity or impacts. */
   steeringDirection?: -1 | 0 | 1;
+  /** Persistent rotational velocity (rad/s) for the inertial model; not a powered-jet indicator. */
+  angularVelocity?: number;
   shipClass?: ShipClass;
   stats?: ShipStats;
   primaryCooldown?: number;
@@ -125,6 +129,8 @@ export interface PlayerInput {
 }
 
 export interface MatchSettings {
+  /** One negotiated model per match; it must not change once simulation starts. */
+  flightMode: FlightMode;
   boostersEnabled: boolean;
   boosterRate: 'rare' | 'normal' | 'chaos';
   asteroidDensity: number; // 0 to 10
@@ -176,7 +182,11 @@ export function createInitialState(
   worldHeight: number,
   seed: number,
   requiredWins: number = 1,
+  flightMode: FlightMode = 'arcade', // Explicit local/legacy start; remote payloads must agree and validate.
 ): GameState {
+  if (!isFlightMode(flightMode)) {
+    throw new RangeError('Unrecognized match flight model');
+  }
   return {
     tick: 0,
     seed,
@@ -193,6 +203,7 @@ export function createInitialState(
     playerCallSigns: {},
     playerBoosters: {},
     settings: {
+      flightMode,
       boostersEnabled: true,
       boosterRate: 'normal',
       asteroidDensity: 5,
@@ -210,6 +221,38 @@ export function createInitialState(
     isPaused: false,
     gameOverCountdown: undefined,
   };
+}
+
+export type MatchFlightModeSelection =
+  | { ok: true; mode: FlightMode }
+  | { ok: false; reason: 'invalid-requested-mode' | 'invalid-state-mode' | 'match-started' };
+
+/**
+ * Configure a local match before its first tick. An incoming peer acknowledgement
+ * must separately pass agreeFlightMode; this function is NOT a wire validator.
+ * Reject invalid or late selections without mutating the current simulation.
+ */
+export function selectPreMatchFlightMode(
+  state: GameState,
+  requested: unknown,
+): MatchFlightModeSelection {
+  if (!isFlightMode(requested)) {
+    return { ok: false, reason: 'invalid-requested-mode' };
+  }
+  if (
+    !state ||
+    !state.settings ||
+    !isFlightMode(state.settings.flightMode) ||
+    !Number.isSafeInteger(state.tick) ||
+    state.tick < 0
+  ) {
+    return { ok: false, reason: 'invalid-state-mode' };
+  }
+  if (state.tick !== 0 || state.isGameOver) {
+    return { ok: false, reason: 'match-started' };
+  }
+  state.settings.flightMode = requested;
+  return { ok: true, mode: requested };
 }
 
 export function generateId(): string {

@@ -14,7 +14,7 @@ export const SHIP_CONFIGS: Record<ShipClass, ShipStats> = {
     maxEnergy: 100,
     rechargeRate: 30,
     thrustCost: 20,
-    steeringCost: 16,
+    steeringCost: 40,
     shieldCost: 60,
     primaryColor: '#00ffcc', // Teal
     secondaryColor: '#ff00ff', // Magenta
@@ -43,7 +43,7 @@ export const SHIP_CONFIGS: Record<ShipClass, ShipStats> = {
     maxEnergy: 60,
     rechargeRate: 45,
     thrustCost: 60,
-    steeringCost: 28,
+    steeringCost: 60,
     shieldCost: 90,
     primaryColor: '#ffff00', // Yellow
     secondaryColor: '#00ff00', // Lime Green
@@ -72,7 +72,7 @@ export const SHIP_CONFIGS: Record<ShipClass, ShipStats> = {
     maxEnergy: 200,
     rechargeRate: 15,
     thrustCost: 15,
-    steeringCost: 10,
+    steeringCost: 20,
     shieldCost: 30,
     primaryColor: '#0066ff', // Blue
     secondaryColor: '#9933ff', // Purple
@@ -136,6 +136,7 @@ export function createShip(
     position: { x, y },
     velocity: { x: 0, y: 0 },
     rotation: -Math.PI / 2, // Point up
+    angularVelocity: 0, // Match-canonical inertial spin starts at rest.
     radius: 10,
     isActive: true,
     ownerId,
@@ -143,7 +144,6 @@ export function createShip(
     energy: stats.maxEnergy,
     maxEnergy: stats.maxEnergy,
     isShieldActive: false,
-    isThrusting: false,
     steeringDirection: 0,
     shipClass,
     stats,

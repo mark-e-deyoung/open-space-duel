@@ -6,6 +6,11 @@ import {
   type PeerV1JoinResult,
 } from '../../network/peerV1Client';
 import { MAX_STATE_ENTITIES } from '../engine/worldConfig';
+import {
+  agreeFlightSession,
+  parseFlightSessionDescriptor,
+  type FlightSessionDescriptor,
+} from '../flightSession';
 
 export type NetworkRole = 'local' | 'host' | 'guest';
 
@@ -14,11 +19,13 @@ export interface HandshakeMessage {
   version: string;
   role: NetworkRole;
   callSign: string;
+  session?: FlightSessionDescriptor;
 }
 
 export interface HandshakeAckMessage {
   type: 'handshake_ack';
   callSign: string;
+  session?: FlightSessionDescriptor;
 }
 
 export interface InputMessage {
@@ -39,32 +46,55 @@ export type NetworkMessage =
   | InputMessage
   | StateMessage;
 
+/**
+ * Validate controls from the network boundary without converting arbitrary
+ * truthy strings or oversized numeric customizations into gameplay commands.
+ * Invalid fields are neutral (never a free bonus, steering or weapon action).
+ */
 export function sanitizeInput(input: unknown): PlayerInput {
-  const i = input as Partial<PlayerInput> & {
-    customization?: Record<string, unknown>;
+  const isPlain = (value: unknown): value is Record<string, unknown> => {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+      return false;
+    }
+    try {
+      const proto = Object.getPrototypeOf(value);
+      return proto === Object.prototype || proto === null;
+    } catch {
+      return false;
+    }
   };
+  const i: Record<string, unknown> = isPlain(input) ? input : {};
+  const custom = isPlain(i.customization) ? i.customization : null;
+  // Only JSON-owned fields can command the ship; polluted prototypes cannot.
+  const bounded = (value: unknown, min: number, max: number): number | undefined =>
+    typeof value === 'number' &&
+    Number.isFinite(value) &&
+    value >= min &&
+    value <= max
+      ? value
+      : undefined;
+  const focus = custom && Object.hasOwn(custom, 'statFocus')
+    ? bounded(custom.statFocus, -5, 5)
+    : undefined;
+  // Client-supplied explicit speed/shield bonuses cannot override the
+  // single shared -5..+5 stat-focus budget or grant both bonuses at once.
+  // createShip derives the legitimate bonuses from this focus instead.
+
   return {
-    thrust: !!i?.thrust,
-    left: !!i?.left,
-    right: !!i?.right,
-    fire: !!i?.fire,
-    fireSecondary: !!i?.fireSecondary,
-    shield: !!i?.shield,
-    customization: i?.customization
+    thrust: Object.hasOwn(i, 'thrust') && i.thrust === true,
+    left: Object.hasOwn(i, 'left') && i.left === true,
+    right: Object.hasOwn(i, 'right') && i.right === true,
+    fire: Object.hasOwn(i, 'fire') && i.fire === true,
+    fireSecondary: Object.hasOwn(i, 'fireSecondary') && i.fireSecondary === true,
+    shield: Object.hasOwn(i, 'shield') && i.shield === true,
+    customization: custom
       ? {
-          statFocus: Number(i.customization.statFocus) || 0,
-          speedBonus:
-            typeof i.customization.speedBonus === 'number'
-              ? i.customization.speedBonus
-              : undefined,
-          shieldBonus:
-            typeof i.customization.shieldBonus === 'number'
-              ? i.customization.shieldBonus
-              : undefined,
+          statFocus: focus ?? 0,
         }
       : undefined,
-    targetRotation:
-      typeof i?.targetRotation === 'number' ? i.targetRotation : undefined,
+    targetRotation: Object.hasOwn(i, 'targetRotation')
+      ? bounded(i.targetRotation, -2 * Math.PI, 2 * Math.PI)
+      : undefined,
   };
 }
 
@@ -81,6 +111,9 @@ export class NetworkManager {
   public remoteCallSign: string = 'PILOT 2';
 
   public handshakeComplete: boolean = false;
+  private expectedManualSession: FlightSessionDescriptor | null = null;
+  private manualHandshakeTimer: ReturnType<typeof setTimeout> | null = null;
+  private manualHandshakeAttempts = 0;
   public versionMismatch: boolean = false;
   public lastHeartbeat: number = Date.now();
 
@@ -129,6 +162,62 @@ export class NetworkManager {
     this.appVersion = appVersion;
   }
 
+  /** Set the same canonical match descriptor BEFORE any manual RTC handshake. */
+  public configureManualSession(value: unknown): boolean {
+    const session = parseFlightSessionDescriptor(value);
+    if (
+      !session ||
+      session.appVersion !== this.appVersion ||
+      this.handshakeComplete ||
+      this.isPeerV1Game ||
+      this.webrtc !== null ||
+      this.trystero !== null
+    ) {
+      return false;
+    }
+    this.expectedManualSession = session;
+    return true;
+  }
+
+  public get manualSession(): FlightSessionDescriptor | null {
+    return this.expectedManualSession ? { ...this.expectedManualSession } : null;
+  }
+
+  private rejectManualSession(reason: string): void {
+    this.stopManualHandshakeRetries();
+    this.handshakeComplete = false;
+    this.onHandshakeFailed?.(reason);
+  }
+
+  private stopManualHandshakeRetries(): void {
+    if (this.manualHandshakeTimer !== null) clearTimeout(this.manualHandshakeTimer);
+    this.manualHandshakeTimer = null;
+    this.manualHandshakeAttempts = 0;
+  }
+
+  /** Bounded idempotent guest hello retries on the unreliable game channel. */
+  private beginManualHandshake(): void {
+    this.stopManualHandshakeRetries();
+    if (this.mode !== 'manual' || this.role !== 'guest') {
+      this.sendHandshake();
+      return;
+    }
+    const retry = () => {
+      if (this.handshakeComplete || !this.webrtc) {
+        this.stopManualHandshakeRetries();
+        return;
+      }
+      if (this.manualHandshakeAttempts >= 5) {
+        this.rejectManualSession('Manual peer ACK timeout after bounded retries');
+        return;
+      }
+      this.manualHandshakeAttempts++;
+      this.sendHandshake();
+      if (!this.handshakeComplete) this.manualHandshakeTimer = setTimeout(retry, 1000);
+    };
+    retry();
+  }
+
   /**
    * Called by the Host during the physics update to get the next pending input from the guest.
    * If the buffer is empty, it returns the last known input state.
@@ -152,18 +241,16 @@ export class NetworkManager {
     this.webrtc.onMessage = (msg: NetworkMessage) => this.handleMessage(msg);
     this.webrtc.onConnected = () => {
       this.onStatusUpdate?.('NEGOTIATING HANDSHAKE');
-      // Manual trigger for handshake once socket is open
-      this.sendHandshake();
+      // On an unreliable channel, guest repeats a bounded hello until host ACK.
+      this.beginManualHandshake();
     };
     this.webrtc.onConnectionStateChange = (state) => {
       console.debug(`[SYNC] WebRTC Connection State: ${state}`);
       if (state === 'connected') {
         // Fallback for some browsers/environments
         setTimeout(() => {
-          if (!this.handshakeComplete) {
-            console.debug(
-              '[SYNC] Handshake not complete after WebRTC connected, retry sending handshake...',
-            );
+          if (!this.handshakeComplete && this.role !== 'guest') {
+            console.debug('[SYNC] Host retrying manual handshake hello');
             this.sendHandshake();
           }
         }, 1000);
@@ -309,11 +396,16 @@ export class NetworkManager {
   }
 
   private sendHandshake() {
+    if (this.mode === 'manual' && !this.expectedManualSession) {
+      this.rejectManualSession('Missing agreed match ruleset');
+      return;
+    }
     const payload: HandshakeMessage = {
       type: 'handshake',
       version: this.appVersion,
       role: this.role,
       callSign: this.localCallSign,
+      session: this.mode === 'manual' ? this.expectedManualSession ?? undefined : undefined,
     };
     this.sendRaw(payload);
   }
@@ -330,49 +422,107 @@ export class NetworkManager {
         );
         return;
       }
+      if (this.mode === 'manual') {
+        // A transport role is untrusted wire data. Accept ONLY the exact
+        // complementary host/guest role, not any string other than our own.
+        const expectedRole: NetworkRole = this.role === 'host' ? 'guest' : 'host';
+        if (
+          !this.expectedManualSession ||
+          (this.role !== 'host' && this.role !== 'guest') ||
+          msg.role !== expectedRole
+        ) {
+          this.rejectManualSession('Invalid peer role or missing match ruleset');
+          return;
+        }
+        const agreement = agreeFlightSession(this.expectedManualSession, msg.session);
+        if (!agreement.ok) {
+          this.rejectManualSession(`Match ruleset rejected: ${agreement.reason}`);
+          return;
+        }
+      }
 
       if (msg.callSign) {
         this.remoteCallSign = String(msg.callSign).substring(0, 20);
       }
 
-      // If we are guest and receive host handshake, or vice versa
+      // Manual guest cannot start from a host hello: it must receive a host
+      // ACK after the host has verified the guest's exact descriptor.
+      if (this.mode === 'manual' && this.role === 'guest') return;
+      // ACK every matching guest retry, even if the host was already ready;
+      // its previous ACK may have been lost on the unreliable DataChannel.
+      if (this.mode === 'manual' && this.role === 'host') {
+        this.sendRaw({
+          type: 'handshake_ack',
+          callSign: this.localCallSign,
+          session: this.expectedManualSession ?? undefined,
+        });
+      }
       if (!this.handshakeComplete) {
-        this.handshakeComplete = true;
-        this.onStatusUpdate?.('SYNCING VERSION');
-        // Host sends an ack if they receive a guest handshake
-        if (this.role === 'host') {
-          this.sendRaw({
-            type: 'handshake_ack',
-            callSign: this.localCallSign,
-          });
+        if (this.mode !== 'manual' && this.role === 'host') {
+          this.sendRaw({ type: 'handshake_ack', callSign: this.localCallSign });
         }
+        this.handshakeComplete = true;
+        this.onStatusUpdate?.('SYNCING MATCH RULES');
         this.onHandshakeComplete?.();
       }
     } else if (msg.type === 'handshake_ack') {
+      if (this.mode === 'manual') {
+        if (this.role !== 'guest' || !this.expectedManualSession) {
+          this.rejectManualSession('Unexpected match acknowledgement');
+          return;
+        }
+        const agreement = agreeFlightSession(this.expectedManualSession, msg.session);
+        if (!agreement.ok) {
+          this.rejectManualSession(`Match acknowledgement rejected: ${agreement.reason}`);
+          return;
+        }
+      }
       if (msg.callSign) {
         this.remoteCallSign = String(msg.callSign).substring(0, 20);
       }
       if (!this.handshakeComplete) {
+        if (this.mode === 'manual') this.stopManualHandshakeRetries();
         this.handshakeComplete = true;
-        this.onStatusUpdate?.('SYNCING VERSION');
+        this.onStatusUpdate?.('SYNCING MATCH RULES');
         this.onHandshakeComplete?.();
       }
     } else if (msg.type === 'input' && this.role === 'host') {
-      const seq = typeof msg.seq === 'number' ? msg.seq : 0;
-      if (seq < this.lastProcessedInputSeq) return; // Drop out of order
+      if (!this.handshakeComplete || !Number.isSafeInteger(msg.seq) || msg.seq < 0) return;
+      const seq = msg.seq;
+      if (seq <= this.lastProcessedInputSeq) return; // Drop duplicates and replays
       this.lastProcessedInputSeq = seq;
+      // Keep memory bounded even if a peer floods valid monotonic inputs faster
+      // than the 60 Hz simulation consumes them. Retain only recent commands.
+      if (this.remoteInputBuffer.length >= 8) {
+        this.remoteInputBuffer.splice(0, this.remoteInputBuffer.length - 7);
+      }
       this.remoteInputBuffer.push(sanitizeInput(msg.input));
     } else if (msg.type === 'state' && this.role === 'guest') {
-      if (!this.handshakeComplete) return; // Drop state until handshake done
-      const seq = typeof msg.seq === 'number' ? msg.seq : 0;
-      if (seq < this.lastProcessedStateTick) return; // Drop out of order
+      if (!this.handshakeComplete || !Number.isSafeInteger(msg.seq) || msg.seq < 0) return;
+      if (this.mode === 'manual') {
+        const expected = this.expectedManualSession;
+        if (
+          !expected ||
+          !msg.state ||
+          msg.state.seed !== expected.seed ||
+          msg.state.settings?.flightMode !== expected.flightMode
+        ) {
+          this.rejectManualSession('State does not match negotiated match ruleset');
+          return;
+        }
+      }
+      const seq = msg.seq;
+      if (seq <= this.lastProcessedStateTick) return; // Drop duplicates and replays
 
-      // Guard: Validate state size / entity count
+      // Fail closed on malformed state shape or mismatched tick before the UI
+      // can dereference entities or use a forged sequence number.
       if (
-        msg.state?.entities &&
-        Array.isArray(msg.state.entities) &&
-        msg.state.entities.length > MAX_STATE_ENTITIES
-      ) {
+        !msg.state ||
+        !Array.isArray(msg.state.entities) ||
+        !Number.isSafeInteger(msg.state.tick) ||
+        msg.state.tick !== seq
+      ) return;
+      if (msg.state.entities.length > MAX_STATE_ENTITIES) {
         console.warn(
           'NetworkManager: Received abnormally large state, dropping.',
           msg.state.entities.length,
@@ -403,6 +553,15 @@ export class NetworkManager {
   // Host sends state to guest
   public sendState(state: GameState) {
     if (this.role === 'host' && this.handshakeComplete) {
+      if (
+        this.mode === 'manual' &&
+        (!this.expectedManualSession ||
+          state.seed !== this.expectedManualSession.seed ||
+          state.settings?.flightMode !== this.expectedManualSession.flightMode)
+      ) {
+        this.rejectManualSession('Host state diverged from negotiated match ruleset');
+        return;
+      }
       const payload: StateMessage = { type: 'state', state, seq: state.tick };
       this.sendRaw(payload);
     }
@@ -422,6 +581,7 @@ export class NetworkManager {
   }
 
   public close() {
+    this.stopManualHandshakeRetries();
     if (this.webrtc) {
       this.webrtc.close();
       this.webrtc = null;
@@ -436,7 +596,17 @@ export class NetworkManager {
     this.lastProcessedInputSeq = -1;
     this.currentInputSeq = 0;
     this.remoteInputBuffer = [];
+    // No previous-match thrust/weapon input may survive into another duel.
+    this.lastInput = {
+      thrust: false,
+      left: false,
+      right: false,
+      fire: false,
+      fireSecondary: false,
+      shield: false,
+    };
     this.handshakeComplete = false;
+    this.expectedManualSession = null;
     this.isPeerV1Game = false;
     this.peerV1Client = null;
   }

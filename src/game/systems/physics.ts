@@ -8,6 +8,8 @@ import {
   Entity,
 } from '../engine/state';
 import { DeterministicRNG } from '../../sim/prng';
+import { isFlightMode } from '../flightMode';
+import { stepInertialTurn, type TurnDirection } from '../inertialTurn';
 import { MAX_PARTICLES, MAX_ENTITIES } from '../engine/worldConfig';
 import { createProjectile } from '../entities/projectile';
 import { createAsteroid } from '../entities/asteroid';
@@ -18,6 +20,42 @@ import { createSpaceStorm } from '../entities/spaceStorm';
 import { createSpaceSnake } from '../entities/spaceSnake';
 import { createSaucer } from '../entities/saucer';
 import { createBooster, updateBoosters } from '../entities/booster';
+
+/**
+ * Angular impulse affects the same energy ledger as the other actuators.
+ * A zero command still advances persistent inertial rotation without creating
+ * a nose-jet indicator. No additional simulator or parallel ship state.
+ */
+function advanceInertialSteering(
+  entity: Entity,
+  direction: TurnDirection,
+  dt: number,
+): void {
+  const stats = entity.stats;
+  if (!stats) return;
+  const result = stepInertialTurn(
+    {
+      rotation: entity.rotation,
+      angularVelocity: entity.angularVelocity ?? 0,
+      energy: entity.energy ?? 0,
+    },
+    direction,
+    dt,
+    {
+      angularAcceleration: stats.rotationSpeed * 4,
+      maxAngularSpeed: stats.rotationSpeed,
+      steeringCostPerSecond: stats.steeringCost,
+    },
+  );
+  if (!result.ok) {
+    // Reject malformed actuator state without giving a free rotation or energy.
+    throw new RangeError(`Invalid inertial steering state: ${result.reason}`);
+  }
+  entity.rotation = result.state.rotation;
+  entity.angularVelocity = result.state.angularVelocity;
+  entity.energy = result.state.energy;
+  entity.steeringDirection = result.steeringDirection;
+}
 
 const DRAG = 0.99; // Apply some drag per frame
 const BOOSTER_DIFFICULTY_CONFIG = {
@@ -35,6 +73,34 @@ export function updatePhysics(
   ) => void,
 ) {
   if (state.isPaused || state.isGameOver) return;
+  if (!state.settings || !isFlightMode(state.settings.flightMode)) {
+    throw new RangeError('Unrecognized match flight model');
+  }
+  if (state.settings.flightMode === 'inertial') {
+    if (!Number.isFinite(dt) || dt <= 0 || dt > 0.25) {
+      throw new RangeError('Invalid inertial simulation timestep');
+    }
+    // Validate every active ship before advancing the tick or paying costs.
+    // An invalid peer/replay snapshot must not partially update the world.
+    for (const ship of state.entities) {
+      if (ship.type !== EntityType.Ship || !ship.isActive) continue;
+      const stats = ship.stats;
+      if (
+        !stats ||
+        !Number.isFinite(stats.rotationSpeed) ||
+        stats.rotationSpeed <= 0 ||
+        !Number.isFinite(stats.steeringCost) ||
+        stats.steeringCost <= 0 ||
+        !Number.isFinite(ship.rotation) ||
+        !Number.isFinite(ship.angularVelocity ?? 0) ||
+        Math.abs(ship.angularVelocity ?? 0) > stats.rotationSpeed ||
+        !Number.isFinite(ship.energy ?? 0) ||
+        (ship.energy ?? 0) < 0
+      ) {
+        throw new RangeError('Invalid inertial ship state');
+      }
+    }
+  }
 
   state.tick++;
 
@@ -154,6 +220,19 @@ export function updatePhysics(
       asteroidCount++;
     }
     if (!entity.isActive) continue;
+    // Never infer maneuvering from passive movement, gravity or impacts.
+    if (entity.type === EntityType.Ship) {
+      entity.steeringDirection = 0;
+      // Missing input must not preserve powered-actuator evidence from the
+      // prior tick; residual velocity can still be gravity or collision drift.
+      if (!entity.ownerId || !inputs[entity.ownerId]) {
+        entity.isThrusting = false;
+        entity.isShieldActive = false;
+        if (state.settings.flightMode === 'inertial') {
+          advanceInertialSteering(entity, 0, dt);
+        }
+      }
+    }
 
     // Apply player input if this is a ship owned by a player
     if (
@@ -172,8 +251,7 @@ export function updatePhysics(
         !entity.isShieldActive
       ) {
         const rechargeRate =
-          stats.rechargeRate *
-            (entity.isThrusting || entity.steeringDirection ? 0.5 : 1.0);
+          stats.rechargeRate * (entity.isThrusting ? 0.5 : 1.0);
         entity.energy = Math.min(
           entity.maxEnergy,
           entity.energy + rechargeRate * dt,
@@ -195,22 +273,56 @@ export function updatePhysics(
         (b) => b.type === BoosterType.VectorTorpedo && (b.charges ?? 0) > 0,
       );
 
-      // Commanded attitude changes require front maneuvering thrusters.
-      // A gravity/collision velocity impulse never enters this path.
-      const turnRate = Math.max(0, stats.rotationSpeed);
-      const fullTurn = turnRate * Math.max(0, dt);
-      let requestedTurn = 0;
-      if (
-        typeof input.targetRotation === 'number' &&
-        Number.isFinite(input.targetRotation)
-      ) {
-        const difference = Math.atan2(
-          Math.sin(input.targetRotation - entity.rotation),
-          Math.cos(input.targetRotation - entity.rotation),
-        );
-        requestedTurn = Math.sign(difference) * Math.min(Math.abs(difference), fullTurn);
-      } else if (input.left !== input.right) {
-        requestedTurn = (input.right ? 1 : -1) * fullTurn;
+      // Steering spends the SAME energy reserve as forward thrust, shields and weapons.
+      // Charge proportional to the actual angular displacement; if the reserve
+      // cannot pay for the full turn, apply a proportionally smaller turn.
+      // The rendered nose jet is tied only to energy-funded angular motion.
+      if (state.settings.flightMode === 'inertial') {
+        let direction: TurnDirection = 0;
+        if (input.targetRotation !== undefined) {
+          if (Number.isFinite(input.targetRotation) && dt > 0) {
+            const delta = input.targetRotation - entity.rotation;
+            const shortest = Math.atan2(Math.sin(delta), Math.cos(delta));
+            // Target-heading inputs command paid acceleration/counter-torque.
+            // A matched heading does NOT instantly delete angular momentum.
+            const desiredSpeed = Math.max(
+              -stats.rotationSpeed,
+              Math.min(stats.rotationSpeed, shortest / dt),
+            );
+            const error = desiredSpeed - (entity.angularVelocity ?? 0);
+            direction = error > 1e-10 ? 1 : error < -1e-10 ? -1 : 0;
+          }
+        } else if (Boolean(input.left) !== Boolean(input.right)) {
+          direction = input.left ? -1 : 1;
+        }
+        advanceInertialSteering(entity, direction, dt);
+      } else {
+        const turnBudget = stats.rotationSpeed * dt;
+        let requestedTurn = 0;
+        if (turnBudget > 0 && Number.isFinite(turnBudget)) {
+          if (input.targetRotation !== undefined) {
+            if (Number.isFinite(input.targetRotation)) {
+              // Shortest signed arc without an unbounded loop for large angles.
+              const diff = input.targetRotation - entity.rotation;
+              const shortest = Math.atan2(Math.sin(diff), Math.cos(diff));
+              requestedTurn = Math.max(-turnBudget, Math.min(turnBudget, shortest));
+            }
+          } else if (Boolean(input.left) !== Boolean(input.right)) {
+            requestedTurn = input.left ? -turnBudget : turnBudget;
+          }
+        }
+        if (requestedTurn !== 0) {
+          const fullCost =
+            (Math.abs(requestedTurn) / stats.rotationSpeed) * stats.steeringCost;
+          const available = Math.max(0, entity.energy ?? 0);
+          if (fullCost > 0 && Number.isFinite(fullCost) && available > 0) {
+            const spent = Math.min(fullCost, available);
+            const appliedTurn = requestedTurn * (spent / fullCost);
+            entity.rotation += appliedTurn;
+            entity.energy = available - spent;
+            entity.steeringDirection = appliedTurn > 0 ? 1 : -1;
+          }
+        }
       }
 
       entity.isShieldActive = input.shield && (entity.energy ?? 0) > 5;
@@ -222,32 +334,25 @@ export function updatePhysics(
         if (state.tick % 5 === 0) onSound?.('shield');
       }
 
-      // Shield pays first. Turn and translation then draw separately from
-      // the remaining shared capacitor. Underfunded burns are proportional.
-      entity.steeringDirection = 0;
-      if (requestedTurn !== 0 && turnRate > 0) {
-        const desiredCost = stats.steeringCost * (Math.abs(requestedTurn) / turnRate);
-        const available = Math.max(0, entity.energy ?? 0);
-        const fraction = desiredCost > 0 ? Math.min(1, available / desiredCost) : 0;
-        if (fraction > 0) {
-          const appliedTurn = requestedTurn * fraction;
-          entity.rotation += appliedTurn;
-          entity.energy = Math.max(0, available - desiredCost * fraction);
-          entity.steeringDirection = appliedTurn > 0 ? 1 : -1;
-        }
-      }
-
-      const thrustCost = Math.max(0, stats.thrustCost * dt);
+      // Forward and steering impulses are funded by the SAME remaining
+      // reserve. A partial reserve buys a proportionate acceleration, never
+      // a full impulse for a fractional fuel payment.
+      const fullThrustCost = stats.thrustCost * dt;
       const thrustEnergy = Math.max(0, entity.energy ?? 0);
-      const throttle = thrustCost > 0 ? Math.min(1, thrustEnergy / thrustCost) : 0;
-      entity.isThrusting = !!input.thrust && !entity.isShieldActive &&
-        dt > 0 && throttle > 0;
+      const thrustFraction =
+        input.thrust &&
+        !entity.isShieldActive &&
+        Number.isFinite(fullThrustCost) &&
+        fullThrustCost > 0
+          ? Math.min(1, thrustEnergy / fullThrustCost)
+          : 0;
+      entity.isThrusting = thrustFraction > 0;
       if (entity.isThrusting) {
         entity.velocity.x +=
-          Math.cos(entity.rotation) * stats.acceleration * dt * throttle;
+          Math.cos(entity.rotation) * stats.acceleration * dt * thrustFraction;
         entity.velocity.y +=
-          Math.sin(entity.rotation) * stats.acceleration * dt * throttle;
-        entity.energy = Math.max(0, thrustEnergy - thrustCost * throttle);
+          Math.sin(entity.rotation) * stats.acceleration * dt * thrustFraction;
+        entity.energy = Math.max(0, thrustEnergy - fullThrustCost * thrustFraction);
         if (state.tick % 5 === 0) onSound?.('thrust');
         if (state.tick % 2 === 0) {
           state.particles.push({

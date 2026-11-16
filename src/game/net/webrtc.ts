@@ -1,5 +1,9 @@
 import { TEMPORAL_CONFIG } from '../engine/state';
-import { NetworkMessage } from './sync';
+import type { NetworkMessage } from './sync';
+
+// Manual P2P state snapshots contain at most MAX_STATE_ENTITIES (500) entities.
+// Reject implausibly large frames before JSON.parse can allocate unbounded data.
+export const MAX_MANUAL_WIRE_CHARS = 1_000_000;
 
 export class WebRTCConnection {
   public peerConnection: RTCPeerConnection | null = null;
@@ -109,10 +113,17 @@ export class WebRTCConnection {
       if (this.onConnected) this.onConnected();
     };
     channel.onmessage = (event) => {
+      if (
+        typeof event.data !== 'string' ||
+        event.data.length > MAX_MANUAL_WIRE_CHARS
+      ) {
+        console.warn('Rejected oversized or non-text WebRTC message');
+        return;
+      }
       if (this.onMessage) {
         try {
-          const parsed = JSON.parse(event.data);
-          this.onMessage(parsed);
+          const parsed: unknown = JSON.parse(event.data);
+          this.onMessage(parsed as NetworkMessage);
         } catch (e) {
           console.warn('Failed to parse WebRTC message', e);
         }

@@ -1,7 +1,43 @@
 import { ShipClass } from '../game/engine/state';
+import { isFlightMode, type FlightMode } from '../game/flightMode';
 import { toCanvas } from 'qrcode';
 import { renderControlCalibration } from './controlCalibration';
 import { FriendsManager } from '../network/friends';
+
+// Bounded compact-landscape adaptation. Source-neutral public 3-browser
+// qualification: https://github.com/mark-e-deyoung/open-space-duel/actions/runs/42316290024
+// Preserve the 44px minimum of selectable ship targets and keep launch chrome fixed.
+const COMPACT_LANDSCAPE_STYLE_ID = 'osd-compact-landscape-styles';
+const COMPACT_LANDSCAPE_CSS = `
+@media (max-height:400px) and (orientation:landscape) {
+  #main-menu .menu-card {
+    padding:30px 20px 78px !important;
+    justify-content:flex-start !important;
+    overflow-y:auto !important;
+    scroll-padding-bottom:80px;
+  }
+  #main-menu .menu-card h2 { font-size:14px !important; margin-bottom:4px !important; }
+  #main-menu .menu-card .p1-ship-card,
+  #main-menu .menu-card .p2-ship-card {
+    padding:2px !important; min-height:44px !important; box-sizing:border-box;
+  }
+  #main-menu .menu-card svg { width:24px !important; height:24px !important; }
+  #main-menu .menu-card > div[style*="display: grid"] {
+    gap:6px !important; margin-bottom:4px !important;
+  }
+  #main-menu .menu-card > div[style*="display: flex"][style*="align-items: center"] {
+    margin-bottom:2px !important;
+  }
+}`;
+
+/** Install exactly one responsive style, leaving portrait/default layout alone. */
+function ensureCompactLandscapeStyles(): void {
+  if (document.getElementById(COMPACT_LANDSCAPE_STYLE_ID)) return;
+  const element = document.createElement('style');
+  element.id = COMPACT_LANDSCAPE_STYLE_ID;
+  element.textContent = COMPACT_LANDSCAPE_CSS;
+  document.head.appendChild(element);
+}
 
 /** Clamp a value between min and max. Used for localStorage value validation. */
 function clamp(v: number, min: number, max: number): number {
@@ -76,6 +112,7 @@ export class MainMenu {
   public p2SelectedShipClass: ShipClass = ShipClass.Standard;
 
   // Game Settings (Defaults)
+  public selectedFlightMode: FlightMode = 'arcade';
   public gameSpeed: number = 1.0;
   public unlimitedEnergy: boolean = false;
   public boostersEnabled: boolean = true;
@@ -154,6 +191,7 @@ export class MainMenu {
     this.container.style.cssText =
       'position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); color: #fff; overflow: hidden; z-index: 1000;';
     parent.appendChild(this.container);
+    ensureCompactLandscapeStyles();
     this.loadSettings();
   }
 
@@ -169,6 +207,9 @@ export class MainMenu {
         this.asteroidDensity = clamp(Number(data.asteroidDensity) || 5, 0, 10);
         this.hazardsEnabled = data.hazardsEnabled ?? true;
         this.screenShake = clamp(Number(data.screenShake) || 1.0, 0, 2.0);
+        this.selectedFlightMode = isFlightMode(data.selectedFlightMode)
+          ? data.selectedFlightMode
+          : 'arcade';
         this.selectedPreset = data.selectedPreset ?? 'standard';
         this.musicIntensityProfile = data.musicIntensityProfile ?? 'balanced';
         this.waveCompositions = data.waveCompositions ?? [
@@ -192,6 +233,7 @@ export class MainMenu {
   private saveSettings() {
     try {
       const data = {
+        selectedFlightMode: this.selectedFlightMode,
         gameSpeed: this.gameSpeed,
         unlimitedEnergy: this.unlimitedEnergy,
         boostersEnabled: this.boostersEnabled,
@@ -1195,7 +1237,7 @@ export class MainMenu {
       path = 'M 10,0 L -10,8 L -5,0 L -10,-8 Z';
     }
     return (
-      '<svg aria-hidden="true" focusable="false" width="50" height="50" viewBox="-15 -15 30 30" style="filter: drop-shadow(0 0 8px ' +
+      '<svg width="50" height="50" viewBox="-15 -15 30 30" style="filter: drop-shadow(0 0 8px ' +
       color +
       ');">' +
       '<path d="' +
@@ -1209,7 +1251,7 @@ export class MainMenu {
 
   private renderCard(index: number): string {
     const cardStyle =
-      'flex: 0 0 100%; width: 100%; height: 100%; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: safe center; overflow-y: auto; overscroll-behavior-y: contain; padding: calc(72px + env(safe-area-inset-top, 0px)) 20px calc(80px + env(safe-area-inset-bottom, 0px)) 20px; box-sizing: border-box; scroll-snap-align: start;';
+      'flex: 0 0 100%; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: calc(72px + env(safe-area-inset-top, 0px)) 20px calc(80px + env(safe-area-inset-bottom, 0px)) 20px; box-sizing: border-box; scroll-snap-align: start;';
 
     switch (index) {
       case 0: // PILOT 1
@@ -1222,38 +1264,36 @@ export class MainMenu {
           '<div data-testid="call-sign-display" style="font-size: 24px; font-weight: bold;">' +
           this.callSign +
           '</div>' +
-          '<button id="btn-regen-name-inline" style="min-width: 44px; min-height: 44px; box-sizing: border-box; flex-shrink: 0; background: #222; border: 1px solid #333; color: #00ffcc; padding: 4px 8px; cursor: pointer; border-radius: 4px; font-size: 16px;">🔄</button>' +
+          '<button id="btn-regen-name-inline" style="background: #222; border: 1px solid #333; color: #00ffcc; padding: 4px 8px; cursor: pointer; border-radius: 4px; font-size: 16px;">🔄</button>' +
           '</div>' +
-          '<div role="group" aria-label="Pilot 1 ship class" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 30px;">' +
+          '<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 30px;">' +
           [ShipClass.Interceptor, ShipClass.Standard, ShipClass.Dreadnought]
             .map(
               (sc) =>
-                '<button type="button" class="p1-ship-card ' +
+                '<div class="p1-ship-card ' +
                 (this.selectedShipClass === sc ? 'active' : '') +
                 '" data-class="' +
                 sc +
                 '" data-testid="ship-card-' +
                 sc +
-                '" aria-pressed="' +
-                (this.selectedShipClass === sc ? 'true' : 'false') +
                 '" style="border: 2px solid ' +
                 (this.selectedShipClass === sc ? '#00ffcc' : '#333') +
                 '; background: ' +
                 (this.selectedShipClass === sc
                   ? 'rgba(0,255,204,0.1)'
                   : 'transparent') +
-                '; padding: 10px; border-radius: 8px; cursor: pointer; text-align: center; font-family: inherit; box-sizing: border-box;">' +
+                '; padding: 10px; border-radius: 8px; cursor: pointer; text-align: center;">' +
                 this.getShipSVG(sc) +
                 '<div style="font-size: 10px; margin-top: 5px;">' +
                 sc.toUpperCase() +
                 '</div>' +
-                '</button>',
+                '</div>',
             )
             .join('') +
           '</div>' +
           '<div style="width: 80%; max-width: 300px;">' +
           '<div style="display: flex; justify-content: space-between; font-size: 12px; color: #888;"><span>SHIELDS</span><span>SPEED</span></div>' +
-          '<input type="range" id="p1-stat-slider" data-testid="stat-focus-slider" aria-label="Pilot 1 tuning: shields versus speed" aria-describedby="p1-tuning-label" min="-5" max="5" value="' +
+          '<input type="range" id="p1-stat-slider" data-testid="stat-focus-slider" min="-5" max="5" value="' +
           this.statFocus +
           '" style="width: 100%; margin: 10px 0;">' +
           '<div id="p1-tuning-label" data-testid="stat-focus-label" style="text-align: center; color: #00ffcc; font-weight: bold;">' +
@@ -1275,36 +1315,34 @@ export class MainMenu {
           '">' +
           '<h2 style="color: #ffaa00; margin-bottom: 20px; font-size: 20px;">PILOT 2 CONFIG</h2>' +
           '<div style="font-size: 24px; font-weight: bold; margin-bottom: 10px; color: #888;">PILOT 2</div>' +
-          '<div role="group" aria-label="Pilot 2 ship class" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 30px;">' +
+          '<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 30px;">' +
           [ShipClass.Interceptor, ShipClass.Standard, ShipClass.Dreadnought]
             .map(
               (sc) =>
-                '<button type="button" class="p2-ship-card ' +
+                '<div class="p2-ship-card ' +
                 (this.p2SelectedShipClass === sc ? 'active' : '') +
                 '" data-class="' +
                 sc +
                 '" data-testid="p2-ship-card-' +
                 sc +
-                '" aria-pressed="' +
-                (this.p2SelectedShipClass === sc ? 'true' : 'false') +
                 '" style="border: 2px solid ' +
                 (this.p2SelectedShipClass === sc ? '#ffaa00' : '#333') +
                 '; background: ' +
                 (this.p2SelectedShipClass === sc
                   ? 'rgba(255,170,0,0.1)'
                   : 'transparent') +
-                '; padding: 10px; border-radius: 8px; cursor: pointer; text-align: center; font-family: inherit; box-sizing: border-box;">' +
+                '; padding: 10px; border-radius: 8px; cursor: pointer; text-align: center;">' +
                 this.getShipSVG(sc, '#ffaa00') +
                 '<div style="font-size: 10px; margin-top: 5px;">' +
                 sc.toUpperCase() +
                 '</div>' +
-                '</button>',
+                '</div>',
             )
             .join('') +
           '</div>' +
           '<div style="width: 80%; max-width: 300px;">' +
           '<div style="display: flex; justify-content: space-between; font-size: 12px; color: #888;"><span>SHIELDS</span><span>SPEED</span></div>' +
-          '<input type="range" id="p2-stat-slider" data-testid="p2-stat-focus-slider" aria-label="Pilot 2 tuning: shields versus speed" aria-describedby="p2-tuning-label" min="-5" max="5" value="' +
+          '<input type="range" id="p2-stat-slider" data-testid="p2-stat-focus-slider" min="-5" max="5" value="' +
           this.p2StatFocus +
           '" style="width: 100%; margin: 10px 0;">' +
           '<div id="p2-tuning-label" data-testid="p2-stat-focus-label" style="text-align: center; color: #ffaa00; font-weight: bold;">' +
@@ -1328,7 +1366,7 @@ export class MainMenu {
           '<div style="width: 80%; max-width: 400px; display: flex; flex-direction: column; gap: 15px; text-align: left;">' +
           '<div style="display: flex; justify-content: space-between; align-items: center;">' +
           '<span style="font-size: 14px;">PRESET</span>' +
-          '<select id="sel-preset" data-testid="preset-select" aria-label="Match rule preset" style="background: #111; color: #fff; border: 1px solid #444; padding: 5px; font-size: 12px;">' +
+          '<select id="sel-preset" data-testid="preset-select" style="background: #111; color: #fff; border: 1px solid #444; padding: 5px; font-size: 12px;">' +
           ['zen', 'standard', 'tactical', 'duel', 'chaos', 'custom']
             .map(
               (p) =>
@@ -1347,13 +1385,13 @@ export class MainMenu {
           '<div style="display: flex; justify-content: space-between; font-size: 12px;"><span>GAME SPEED</span><span id="label-speed">' +
           Math.round(this.gameSpeed * 100) +
           '%</span></div>' +
-          '<input type="range" id="slider-speed" aria-label="Game speed" aria-describedby="label-speed" min="80" max="150" value="' +
+          '<input type="range" id="slider-speed" min="80" max="150" value="' +
           this.gameSpeed * 100 +
           '" style="width: 100%;">' +
           '</div>' +
           '<div style="display: flex; justify-content: space-between; align-items: center;">' +
           '<span style="font-size: 14px;">MUSIC MOOD</span>' +
-          '<select id="music-profile-select" data-testid="music-profile-select" aria-label="Music intensity" style="background: #111; color: #fff; border: 1px solid #444; padding: 5px; font-size: 12px;">' +
+          '<select id="music-profile-select" data-testid="music-profile-select" style="background: #111; color: #fff; border: 1px solid #444; padding: 5px; font-size: 12px;">' +
           ['calm', 'balanced', 'tense']
             .map(
               (p) =>
@@ -1372,19 +1410,26 @@ export class MainMenu {
           '<div style="display: flex; justify-content: space-between; font-size: 12px;"><span>ASTEROIDS</span><span id="label-density">' +
           this.asteroidDensity +
           '</span></div>' +
-          '<input type="range" id="slider-density" data-testid="density-slider" aria-label="Asteroid density" aria-describedby="label-density" min="0" max="10" value="' +
+          '<input type="range" id="slider-density" data-testid="density-slider" min="0" max="10" value="' +
           this.asteroidDensity +
           '" style="width: 100%;">' +
           '</div>' +
           '<div style="display: flex; justify-content: space-between; font-size: 14px;">' +
           '<span>BOOSTERS</span>' +
-          '<input type="checkbox" id="check-boosters" data-testid="check-boosters" aria-label="Enable boosters" ' +
+          '<input type="checkbox" id="check-boosters" data-testid="check-boosters" ' +
           (this.boostersEnabled ? 'checked' : '') +
           '>' +
           '</div>' +
           '<div style="display: flex; justify-content: space-between; align-items: center;">' +
+          '<label for="flight-model-select" style="font-size: 14px;">LOCAL FLIGHT MODEL</label>' +
+          '<select id="flight-model-select" data-testid="flight-model-select" style="min-height:44px;background:#111;color:#fff;border:1px solid #00ffcc;padding:8px;font-size:12px;">' +
+          '<option value="arcade" ' + (this.selectedFlightMode === 'arcade' ? 'selected' : '') + '>ARCADE</option>' +
+          '<option value="inertial" ' + (this.selectedFlightMode === 'inertial' ? 'selected' : '') + '>INERTIAL</option>' +
+          '</select>' +
+          '</div>' +
+          '<div style="display: flex; justify-content: space-between; align-items: center;">' +
           '<span style="font-size: 14px;">SERIES (WINS)</span>' +
-          '<select id="series-wins-select" data-testid="series-select" aria-label="Wins needed in series" style="background: #111; color: #fff; border: 1px solid #444; padding: 5px; font-size: 12px;">' +
+          '<select id="series-wins-select" data-testid="series-select" style="background: #111; color: #fff; border: 1px solid #444; padding: 5px; font-size: 12px;">' +
           [1, 3, 5, 10]
             .map(
               (w) =>
@@ -1401,7 +1446,7 @@ export class MainMenu {
           '</div>' +
           '<div style="display: flex; justify-content: space-between; font-size: 14px;">' +
           '<span>HAZARDS</span>' +
-          '<input type="checkbox" id="check-hazards" data-testid="check-hazards" aria-label="Enable hazards" ' +
+          '<input type="checkbox" id="check-hazards" data-testid="check-hazards" ' +
           (this.hazardsEnabled ? 'checked' : '') +
           '>' +
           '</div>' +
@@ -1428,7 +1473,16 @@ export class MainMenu {
           '<span style="font-size: 13px; color: #ffaa00; font-weight: bold;">DUEL ARENA</span>' +
           '<span style="font-size: 10px; color: #888;">Public matches</span>' +
           '</div>' +
-          '<button id="btn-host-public" data-testid="host-match-btn" style="width: 100%; padding: 10px; background: #222; color: #ffaa00; border: 1px solid #ffaa00; font-size: 11px; cursor: pointer; margin-bottom: 8px;">HOST DUEL</button>' +
+          // Both explicit browser P2P paths must remain discoverable. The manual
+          // link already has an onHostGame handler; keep its UI contract alive.
+          '<div style="display: flex; gap: 6px; margin-bottom: 8px;">' +
+          '<button id="btn-host-public" data-testid="host-match-btn" style="flex: 1; min-width: 0; min-height: 44px; padding: 8px; background: #222; color: #ffaa00; border: 1px solid #ffaa00; font-size: 11px; cursor: pointer;">HOST DUEL</button>' +
+          '<button id="btn-host-private" data-testid="host-manual-btn" aria-label="Host private browser duel by link" style="flex: 1; min-width: 0; min-height: 44px; padding: 8px; background: #222; color: #00ffcc; border: 1px solid #00ffcc; font-size: 11px; cursor: pointer;">PRIVATE LINK</button>' +
+          '</div>' +
+          '<div style="display: flex; gap: 6px; margin-bottom: 8px;">' +
+          '<input id="manual-invite-input" data-testid="manual-invite-input" aria-label="Private duel invite link" placeholder="Paste private invite link" style="flex: 1; min-width: 0; min-height: 44px; box-sizing: border-box; padding: 8px; background: #111; color: #fff; border: 1px solid #444; font-size: 11px;">' +
+          '<button id="btn-join-manual" data-testid="join-manual-btn" style="min-height: 44px; padding: 8px 10px; background: #222; color: #00ffcc; border: 1px solid #00ffcc; font-size: 11px; cursor: pointer;">JOIN LINK</button>' +
+          '</div>' +
           // Filter buttons
           '<div style="display: flex; gap: 4px; margin-bottom: 6px;">' +
           '<button id="filter-all" class="game-filter-btn" style="flex:1;padding:4px;background:#ffaa00;color:#000;border:none;border-radius:3px;font-size:9px;font-weight:bold;cursor:pointer;">ALL</button>' +
@@ -1454,7 +1508,7 @@ export class MainMenu {
           '<canvas id="friend-qr-canvas" style="display: none; margin: 4px auto; border: 1px solid #444; border-radius: 4px; width: 100px; height: 100px;"></canvas>' +
           // Add wingman by code
           '<div style="display: flex; gap: 6px; margin-bottom: 8px;">' +
-          '<input id="add-friend-input" aria-label="Friend code" placeholder="Enter 6-digit friend code" maxlength="6" style="flex: 1; min-width: 0; padding: 8px; background: #111; color: #6688ff; border: 1px solid #6688ff; border-radius: 4px; font-size: 14px; text-align: center; letter-spacing: 3px;">' +
+          '<input id="add-friend-input" placeholder="Enter 6-digit friend code" maxlength="6" style="flex: 1; min-width: 0; padding: 8px; background: #111; color: #6688ff; border: 1px solid #6688ff; border-radius: 4px; font-size: 14px; text-align: center; letter-spacing: 3px;">' +
           '<button id="btn-add-friend" data-testid="add-friend-btn" style="padding: 8px 14px; background: #6688ff; color: #fff; border: none; border-radius: 4px; font-size: 11px; font-weight: bold; cursor: pointer;">ADD</button>' +
           '</div>' +
           '<div id="friends-list" style="max-height: 110px; overflow-y: auto; font-size: 10px; text-align: left; min-height: 24px;"></div>' +
@@ -1488,11 +1542,11 @@ export class MainMenu {
       '<button id="nav-next" style="position: absolute; right: calc(10px + env(safe-area-inset-right, 0px)); top: 40%; transform: translateY(-50%); background: rgba(0,0,0,0.5); color: #fff; border: 1px solid #fff; width: 44px; height: 44px; border-radius: 22px; cursor: pointer; font-size: 18px; z-index: 1100;">&gt;</button>' +
       // QUICK LAUNCH BAR
       '<div style="position: absolute; bottom: 0; left: 0; width: 100%; background: rgba(20,20,20,0.9); border-top: 1px solid #333; padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 0px)) 10px; box-sizing: border-box; display: flex; gap: 10px; justify-content: center; z-index: 1200;">' +
-      '<button id="btn-local-solo" data-testid="start-local-btn" style="flex: 1; max-width: 150px; min-height: 44px; box-sizing: border-box; padding: 12px; background: #00ffcc; color: #000; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 12px;">SURVIVAL</button>' +
+      '<button id="btn-local-solo" data-testid="start-local-btn" style="flex: 1; max-width: 150px; padding: 12px; background: #00ffcc; color: #000; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 12px;">SURVIVAL</button>' +
       (!isMobile && this.localMultiplayerPossible
-        ? '<button id="btn-local-duel" data-testid="start-local-multi-btn" style="flex: 1; max-width: 150px; min-height: 44px; box-sizing: border-box; padding: 12px; background: #ffaa00; color: #000; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 12px;">LOCAL DUEL</button>'
+        ? '<button id="btn-local-duel" data-testid="start-local-multi-btn" style="flex: 1; max-width: 150px; padding: 12px; background: #ffaa00; color: #000; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 12px;">LOCAL DUEL</button>'
         : '') +
-      '<button id="btn-quick-host" data-testid="open-host-card-btn" style="flex: 1; max-width: 150px; min-height: 44px; box-sizing: border-box; padding: 12px; background: #222; color: #ffaa00; border: 1px solid #ffaa00; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 12px;">DUEL</button>' +
+      '<button id="btn-quick-host" data-testid="open-host-card-btn" style="flex: 1; max-width: 150px; padding: 12px; background: #222; color: #ffaa00; border: 1px solid #ffaa00; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 12px;">DUEL</button>' +
       '</div>' +
       // INDICATORS
       '<div style="position: absolute; bottom: calc(65px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); display: flex; gap: 10px; z-index: 1100;">' +
@@ -1562,11 +1616,9 @@ export class MainMenu {
     // Card P1
     this.container.querySelectorAll('.p1-ship-card').forEach((card) => {
       (card as HTMLElement).onclick = () => {
-        const selected = card.getAttribute('data-class') as ShipClass;
-        this.selectedShipClass = selected;
+        this.selectedShipClass = card.getAttribute('data-class') as ShipClass;
         this.saveSettings();
         this.renderInitialMenu();
-        this.container.querySelector<HTMLButtonElement>(`[data-testid="ship-card-${selected}"]`)?.focus();
       };
     });
     const p1Slider = this.container.querySelector(
@@ -1592,11 +1644,9 @@ export class MainMenu {
     // Card P2
     this.container.querySelectorAll('.p2-ship-card').forEach((card) => {
       (card as HTMLElement).onclick = () => {
-        const selected = card.getAttribute('data-class') as ShipClass;
-        this.p2SelectedShipClass = selected;
+        this.p2SelectedShipClass = card.getAttribute('data-class') as ShipClass;
         this.saveSettings();
         this.renderInitialMenu();
-        this.container.querySelector<HTMLButtonElement>(`[data-testid="p2-ship-card-${selected}"]`)?.focus();
       };
     });
     const p2Slider = this.container.querySelector(
@@ -1681,6 +1731,19 @@ export class MainMenu {
       chH.onchange = () => {
         this.hazardsEnabled = chH.checked;
         this.selectedPreset = 'custom';
+        this.saveSettings();
+      };
+
+    const flightSelect = this.container.querySelector(
+      '#flight-model-select',
+    ) as HTMLSelectElement;
+    if (flightSelect)
+      flightSelect.onchange = () => {
+        if (!isFlightMode(flightSelect.value)) {
+          flightSelect.value = this.selectedFlightMode;
+          return;
+        }
+        this.selectedFlightMode = flightSelect.value;
         this.saveSettings();
       };
 
@@ -1961,6 +2024,9 @@ export class MainMenu {
       this.soundEnabled = !this.soundEnabled;
       btn.textContent = this.soundEnabled ? '\u{1F50A}' : '\u{1F507}';
       this.saveSettings();
+      // Keep real audio playback, telemetry and persistent preference in sync
+      // with the fixed-position control, not merely its button icon.
+      this.onSoundToggle?.(this.soundEnabled);
     };
     document.body.appendChild(btn);
   }

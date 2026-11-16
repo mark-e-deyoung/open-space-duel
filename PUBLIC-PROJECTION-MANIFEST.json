@@ -1,23 +1,31 @@
 {
   "schemaVersion": 2,
   "publicRepository": "mark-e-deyoung/open-space-duel",
-  "qualificationClass": "ordinary",
+  "qualificationClass": "private-required",
   "projectionPolicySha256": "ca5234697c0020a445bba29cc453402e69e8a9cc88c6381ae6c704de06296250",
   "promotionPolicySha256": "ca5234697c0020a445bba29cc453402e69e8a9cc88c6381ae6c704de06296250",
-  "sourceCommitSha": "19eb3945677a76dd36b82af65422b68f51a9b95c",
-  "publicVersion": "0.3.2",
+  "sourceCommitSha": "ebceeebc5e33cb46f04d259e476341038421fa3d",
+  "publicVersion": "0.4.0-rc.1",
   "projectionKind": "reviewed-browser-runtime-only",
   "knownOverrides": [
-    "src/main.ts",
-    "src/sim/numeric.ts",
+    "package-lock.json",
+    "package.json",
+    "public/version.json",
     "src/game/audio/tauntSounds.ts",
     "src/game/engine/state.ts",
     "src/game/entities/ship.ts",
-    "src/game/systems/physics.ts",
     "src/game/render/canvas.ts",
+    "src/game/systems/physics.ts",
+    "src/main.ts",
+    "src/sim/numeric.ts",
     "src/ui/hud.ts"
   ],
   "files": [
+    {
+      "path": "PUBLIC-RELEASE-POLICY.txt",
+      "gitBlobSha1": "10510e9a2c629453c39193e9c2070f0767b6a19e",
+      "bytes": 463
+    },
     {
       "path": "eslint.config.mjs",
       "gitBlobSha1": "f056c2d683fe4e5b73636ec60f84bdaba301a71a",
@@ -30,13 +38,13 @@
     },
     {
       "path": "package-lock.json",
-      "gitBlobSha1": "c3b6c39416e8a6a9b2f7f36cf1229de7b50fd482",
-      "bytes": 245218
+      "gitBlobSha1": "104d96837373fda7c90b45b8d1cc55e1b22957c9",
+      "bytes": 245228
     },
     {
       "path": "package.json",
-      "gitBlobSha1": "6b77b3a415ced6c8467ec6e9f1d3210b36201408",
-      "bytes": 1362
+      "gitBlobSha1": "0f8b6a5f87e22287c4ab50bf94f79ad95f8f23c8",
+      "bytes": 1367
     },
     {
       "path": "packages/osd-protocol/src/messages.ts",
@@ -44,14 +52,9 @@
       "bytes": 8176
     },
     {
-      "path": "PUBLIC-RELEASE-POLICY.txt",
-      "gitBlobSha1": "10510e9a2c629453c39193e9c2070f0767b6a19e",
-      "bytes": 463
-    },
-    {
       "path": "public/version.json",
-      "gitBlobSha1": "58c4f2fcd0dfc4d2c68b5f1a0cff77077f4b5698",
-      "bytes": 25
+      "gitBlobSha1": "7a51243a40088c003575e78de1b0759f3b101591",
+      "bytes": 30
     },
     {
       "path": "src/game/audio/music.ts",
@@ -80,8 +83,8 @@
     },
     {
       "path": "src/game/engine/state.ts",
-      "gitBlobSha1": "2b6c567c464a54032cec5c29ce92962eaafe6474",
-      "bytes": 5305
+      "gitBlobSha1": "91073092fdec7b7e07be7dd8c948b905cbb5153a",
+      "bytes": 6898
     },
     {
       "path": "src/game/engine/worldConfig.ts",
@@ -120,8 +123,8 @@
     },
     {
       "path": "src/game/entities/ship.ts",
-      "gitBlobSha1": "d2fa0c7eae4a80cb0ffb37641ec2640ba32994f4",
-      "bytes": 3929
+      "gitBlobSha1": "7477c520e2dda19b28c1dce3758c9a84f7ffb135",
+      "bytes": 3978
     },
     {
       "path": "src/game/entities/spaceSnake.ts",
@@ -132,6 +135,21 @@
       "path": "src/game/entities/spaceStorm.ts",
       "gitBlobSha1": "2b6d81f927ab6838d9c3c7e409df3c1161e52b46",
       "bytes": 359
+    },
+    {
+      "path": "src/game/flightMode.ts",
+      "gitBlobSha1": "6a986740a9feb4c655dcd69568bf220fb4e311e1",
+      "bytes": 1312
+    },
+    {
+      "path": "src/game/flightSession.ts",
+      "gitBlobSha1": "7e8463df7e8a946627b5427cbb6683d103f981d4",
+      "bytes": 3195
+    },
+    {
+      "path": "src/game/inertialTurn.ts",
+      "gitBlobSha1": "8cd00b06be2683f7529ca29a0e4582e6a20b542d",
+      "bytes": 3778
     },
     {
       "path": "src/game/input/control-map.json",
@@ -160,13 +178,13 @@
     },
     {
       "path": "src/game/net/signaling.ts",
-      "gitBlobSha1": "26127b6d6da3c6b2bd31e3a5676d8a9bec20ec9c",
-      "bytes": 2470
+      "gitBlobSha1": "c93b8b46cd2803d3f4fe47f567719cb29b8d20b7",
+      "bytes": 5024
     },
     {
       "path": "src/game/net/sync.ts",
-      "gitBlobSha1": "308b8c86d455c3faa2407be36333cd86dca06680",
-      "bytes": 14115
+      "gitBlobSha1": "f635083bcfc168c310e2cf19162040c6b12a2375",
+      "bytes": 21017
     },
     {
       "path": "src/game/net/trystero.ts",
@@ -175,13 +193,13 @@
     },
     {
       "path": "src/game/net/webrtc.ts",
-      "gitBlobSha1": "f137208e413acb74f534e7172ccf62a0b5feea2a",
-      "bytes": 4395
+      "gitBlobSha1": "db28d5feadc93b6343d22271dd095cf678c30d76",
+      "bytes": 4847
     },
     {
       "path": "src/game/render/canvas.ts",
-      "gitBlobSha1": "c10666c628eb3b1472e1d876a5c01c8af45585e9",
-      "bytes": 13522
+      "gitBlobSha1": "71b0a7c41951dc943ae271c1eb053a1f3ef72187",
+      "bytes": 13629
     },
     {
       "path": "src/game/systems/collision.ts",
@@ -190,13 +208,13 @@
     },
     {
       "path": "src/game/systems/physics.ts",
-      "gitBlobSha1": "b3f523b331b503d2f699b9a002b06a002a9905b6",
-      "bytes": 24748
+      "gitBlobSha1": "d2870500f10d3887b94fb51608893ed38d797941",
+      "bytes": 29093
     },
     {
       "path": "src/main.ts",
-      "gitBlobSha1": "7c054f0c76964e2f7a327886ab269a7a500b1829",
-      "bytes": 46468
+      "gitBlobSha1": "12bb0eaf4c89bbcad91baad58aff250e15660da3",
+      "bytes": 49713
     },
     {
       "path": "src/network/friends.ts",
@@ -255,8 +273,8 @@
     },
     {
       "path": "src/ui/hud.ts",
-      "gitBlobSha1": "860a943e19ca418f8ddf0e4a481d06e8680f676f",
-      "bytes": 12224
+      "gitBlobSha1": "f57a8f381b8edd0c5e29a09157f460a06bb840a9",
+      "bytes": 11597
     },
     {
       "path": "src/ui/joypad.ts",
@@ -265,8 +283,8 @@
     },
     {
       "path": "src/ui/menu.ts",
-      "gitBlobSha1": "af0b2ad07ca280b9517e05aa694f8ec9088ff597",
-      "bytes": 86710
+      "gitBlobSha1": "46f2cb00411fc18a49fac3d65f168f0012694db8",
+      "bytes": 89561
     },
     {
       "path": "src/ui/overlay.ts",
@@ -331,6 +349,6 @@
       ]
     }
   ],
-  "feature": "steering RCS/energy public build rehearsal",
-  "sourceReconciliation": "pending"
+  "feature": "two-human simulated / dual flight models / manual WebRTC P2P",
+  "sourceReconciliation": "Constructive explicit allow-list over previously classified 0.3.2 candidate, 12 exact private ordinary client blobs and sanitized production main; no private specialized tests or URL E2E test bypass; first public qualification only"
 }

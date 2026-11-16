@@ -14,12 +14,16 @@ import { GamepadInput } from './game/input/gamepad';
 import { createAsteroid } from './game/entities/asteroid';
 import { createShip } from './game/entities/ship';
 import { NetworkManager } from './game/net/sync';
+import {
+  agreeFlightSession,
+  type FlightSessionDescriptor,
+} from './game/flightSession';
 import { LobbyManager } from './game/net/lobby';
 import {
-  createInviteLink,
-  createResponseLink,
+  createVersionedInviteLink,
+  createVersionedResponseLink,
+  parseVersionedManualSignal,
   parseLinkPayload,
-  SignalingMessage,
 } from './game/net/signaling';
 import { MainMenu } from './ui/menu';
 import { HUD } from './ui/hud';
@@ -43,13 +47,24 @@ import {
   WORLD_HEIGHT,
   HEARTBEAT_TIMEOUT_MS,
 } from './game/engine/worldConfig';
-import { TelemetryCollector } from './utils/telemetryCollector';
+import { TelemetryCollector, classifySessionVisit } from './utils/telemetryCollector';
 
 declare const __APP_VERSION__: string;
 
-// Public-source projection: ordinary gameplay only; no private QA capability.
+/**
+ * Generate a canonical uint32 match seed ONCE before the deterministic
+ * simulation starts. The selected seed is then stored in GameState/replay;
+ * no time or entropy is consumed by the actual physics ticks.
+ */
+function newMatchSeed(): number {
+  const seed = new Uint32Array(1);
+  crypto.getRandomValues(seed);
+  return seed[0]!;
+}
+
+// Sanitized production runtime: no URL-activated testing or lobby bypass.
 const isLobbyEnabled = true;
-function recordTrace(_event: string, _details?: Record<string, unknown>): void {}
+function recordTrace(_event: string, _details?: Record<string, unknown>) {}
 
 // Initialize Player Identity
 const identity = getPlayerIdentity();
@@ -174,21 +189,11 @@ const telemetry = new TelemetryCollector(
 // Session start & return visit tracking (lightweight — just a cookie)
 (function emitSessionStart() {
   const VISIT_KEY = 'osd_first_visit';
-  const prev = localStorage.getItem(VISIT_KEY);
-  const now = Date.now().toString();
-  telemetry.emit(
-    prev ? 'return_visit' : 'session_start',
-    '',
-    0,
-    undefined,
-    undefined,
-  );
-  // Also emit a numeric gap if returning (days since last visit)
-  if (prev) {
-    const daysAgo = Math.round((Date.now() - parseInt(prev, 10)) / 86400000);
-    telemetry.emit('return_visit', '', 0, undefined, daysAgo);
-  }
-  localStorage.setItem(VISIT_KEY, now);
+  const now = Date.now();
+  const visit = classifySessionVisit(localStorage.getItem(VISIT_KEY), now);
+  // One session/return event per page load; never double-count a returning visit.
+  telemetry.emit(visit.eventType, '', 0, undefined, visit.daysSince);
+  localStorage.setItem(VISIT_KEY, String(now));
 })();
 const currentDuelMeta = { duelId: '', opponentType: '' };
 
@@ -301,7 +306,9 @@ netManager.onStateReceived = (receivedState) => {
     remoteTick: receivedState.tick,
     entityCount: receivedState.entities.length,
   });
-  if (netManager.role === 'guest') {
+  // A state frame is data, not a new UI navigation. Re-entering GAME every
+  // tick tears down/reinitializes controls, sound and overlays repeatedly.
+  if (netManager.role === 'guest' && currentUIState !== AppUIState.GAME) {
     switchUI(AppUIState.GAME);
   }
 };
@@ -1058,12 +1065,23 @@ function startRound(resetSeries: boolean) {
   const oldSettings = state?.settings;
   const req = state?.requiredWins || 1;
 
+  // Preserve the one match-scoped seed and flight model across rounds.
+  // A fresh round must not silently renegotiate ruleset or break peer checks.
   const nextState = createInitialState(
     WORLD_WIDTH,
     WORLD_HEIGHT,
-    Date.now(),
+    state?.seed ?? newMatchSeed(),
     req,
+    oldSettings?.flightMode ?? 'arcade',
   );
+  // State frames use state.tick as their monotonic network sequence.
+  // Resetting the tick to zero between rounds makes the guest discard every
+  // new frame as a replay until it surpasses the previous round's final tick.
+  // Keep a match-wide timeline while allowing new round-local entities/lives.
+  if (!resetSeries && state) {
+    nextState.tick = state.tick;
+    nextState.lastBoosterSpawnTick = state.tick;
+  }
   nextState.playerCustomizations = customizations;
   nextState.playerShipClasses = shipClasses;
   nextState.playerCallSigns = callSigns;
@@ -1137,13 +1155,20 @@ mainMenu.onStartLocal = (shipClass) => {
   lobby.close();
   netManager.role = 'local';
 
-  state = createInitialState(WORLD_WIDTH, WORLD_HEIGHT, Date.now(), 999);
+  state = createInitialState(
+    WORLD_WIDTH,
+    WORLD_HEIGHT,
+    newMatchSeed(),
+    999,
+    mainMenu.selectedFlightMode,
+  );
   state.playerCustomizations[netManager.localPlayerId] =
     getLocalCustomization();
   state.playerShipClasses[netManager.localPlayerId] = shipClass;
 
   // Apply Match Settings
   state.settings = {
+    flightMode: mainMenu.selectedFlightMode,
     boostersEnabled: mainMenu.boostersEnabled,
     boosterRate: mainMenu.boosterRate,
     asteroidDensity: mainMenu.asteroidDensity,
@@ -1177,8 +1202,9 @@ mainMenu.onStartLocalMultiplayer = (
   state = createInitialState(
     WORLD_WIDTH,
     WORLD_HEIGHT,
-    Date.now(),
+    newMatchSeed(),
     requiredWins,
+    mainMenu.selectedFlightMode,
   );
   state.playerCustomizations[netManager.localPlayerId] = { statFocus: p1Stat };
   state.playerCustomizations['local_p2'] = { statFocus: p2Stat };
@@ -1187,6 +1213,7 @@ mainMenu.onStartLocalMultiplayer = (
 
   // Apply Match Settings
   state.settings = {
+    flightMode: mainMenu.selectedFlightMode,
     boostersEnabled: mainMenu.boostersEnabled,
     boosterRate: mainMenu.boosterRate,
     asteroidDensity: mainMenu.asteroidDensity,
@@ -1210,8 +1237,9 @@ mainMenu.onHostGame = async (strategy, shipClass, requiredWins) => {
     state = createInitialState(
       WORLD_WIDTH,
       WORLD_HEIGHT,
-      Date.now(),
+      newMatchSeed(),
       requiredWins,
+      strategy === 'manual' ? mainMenu.selectedFlightMode : 'arcade',
     );
     state.playerShipClasses[netManager.localPlayerId] = shipClass;
     state.playerCustomizations[netManager.localPlayerId] =
@@ -1230,12 +1258,22 @@ mainMenu.onHostGame = async (strategy, shipClass, requiredWins) => {
         );
         return;
       }
+      const manualSession: FlightSessionDescriptor = {
+        schemaVersion: 1,
+        matchId: `match_${crypto.randomUUID()}`,
+        appVersion: __APP_VERSION__,
+        seed: state.seed,
+        flightMode: state.settings.flightMode,
+      };
+      if (!netManager.configureManualSession(manualSession)) {
+        throw new RangeError('Manual match descriptor rejected before WebRTC');
+      }
       enterLobbyState();
       mainMenu.showWaitingForGuest('', true, true);
       netManager.initWebRTC();
       if (netManager.webrtc) {
         const offer = await netManager.webrtc.createOffer();
-        const inviteLink = createInviteLink(offer);
+        const inviteLink = createVersionedInviteLink(offer, manualSession);
         recordTrace('net:manual-offer-created');
         mainMenu.showWaitingForGuest(inviteLink, true, false);
         // Show QR code on the DUEL ARENA card
@@ -1387,8 +1425,12 @@ mainMenu.onAcceptResponse = async (payload) => {
   const result = parseLinkPayload(payload);
   if (result && result.type === 'response' && netManager.webrtc) {
     try {
-      const msg = result.payload as SignalingMessage;
-      await netManager.webrtc.handleAnswer(msg.sdp);
+      const reply = parseVersionedManualSignal(result.payload, 'answer');
+      const expected = netManager.manualSession;
+      if (!reply || !expected || !agreeFlightSession(expected, reply.session).ok) {
+        throw new RangeError('Response disagrees with the host match');
+      }
+      await netManager.webrtc.handleAnswer(reply.sdp);
     } catch {
       showExpiredLinkNotice();
     }
@@ -1439,21 +1481,29 @@ async function handleHash() {
       alert('Private duel links are not available in this browser.');
       return;
     }
-    enterLobbyState();
-    netManager.role = 'guest';
-    netManager.initWebRTC();
-    if (netManager.webrtc) {
-      try {
-        const msg = result.payload as SignalingMessage;
-        const answer = await netManager.webrtc.handleOfferAndCreateAnswer(
-          msg.sdp,
-        );
-        const responseLink = createResponseLink(answer);
-        mainMenu.showGuestAnswering(responseLink);
-      } catch {
-        // Link expired or host disconnected — show message, then redirect
-        showExpiredLinkNotice();
+    try {
+      const offer = parseVersionedManualSignal(result.payload, 'offer');
+      if (!offer || offer.session.appVersion !== __APP_VERSION__) {
+        throw new RangeError('Unsupported or unversioned manual duel invitation');
       }
+      // Accept only a match-scoped model explicitly carried by the invitation.
+      // A local preference must never silently replace the host ruleset.
+      netManager.role = 'guest';
+      if (!netManager.configureManualSession(offer.session)) {
+        throw new RangeError('Manual duel session rejected');
+      }
+      state = createInitialState(
+        WORLD_WIDTH, WORLD_HEIGHT,
+        offer.session.seed, 1, offer.session.flightMode,
+      );
+      enterLobbyState();
+      netManager.initWebRTC();
+      if (!netManager.webrtc) throw new Error('WebRTC unavailable');
+      const answer = await netManager.webrtc.handleOfferAndCreateAnswer(offer.sdp);
+      const responseLink = createVersionedResponseLink(answer, offer.session);
+      mainMenu.showGuestAnswering(responseLink);
+    } catch {
+      showExpiredLinkNotice();
     }
   } else if (result.type === 'auto_join') {
     const { strategy, roomId } = result.payload as {
@@ -1478,22 +1528,31 @@ async function handleHash() {
   }
 }
 
-window.addEventListener('hashchange', handleHash);
-handleHash();
+// Initialize the menu BEFORE asynchronous invite handling. A trailing menu
+// transition would otherwise close the newly created guest RTCPeerConnection
+// and erase its negotiated session while setRemoteDescription() is pending.
+switchUI(AppUIState.MENU);
+window.addEventListener('hashchange', () => { void handleHash(); });
+void handleHash();
 
 window.addEventListener('beforeunload', () => {
   netManager.close();
   lobby.close();
 });
-switchUI(AppUIState.MENU);
 
-// First-visit tutorial overlay in ordinary public builds.
+// First-visit tutorial overlay (skipped in test mode — overlay blocks E2E clicks)
 {
   const TUTORIAL_KEY = 'osd_tutorial_dismissed';
   if (!localStorage.getItem(TUTORIAL_KEY)) {
     requestAnimationFrame(() => {
       overlay.showTutorial(() => {
         localStorage.setItem(TUTORIAL_KEY, Date.now().toString());
+        // The dismissed tutorial button no longer exists. Give keyboard
+        // users an explicit first action instead of leaving Firefox focus
+        // on the fixed sound toggle outside the menu's navigation order.
+        mainMenu.container
+          .querySelector<HTMLButtonElement>('#btn-local-solo')
+          ?.focus({ preventScroll: true });
       });
     });
   }

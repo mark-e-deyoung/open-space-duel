@@ -134,7 +134,7 @@ export class HUD {
       html +=
         '<div style="position: absolute; bottom: 50px; left: 50%; transform: translateX(-50%); pointer-events: auto; display: flex; gap: 6px; z-index: 1100;">';
       for (const t of taunts) {
-        html += `<button class="hud-taunt-btn" data-taunt="${t.id}" data-testid="taunt-btn-${t.id}" style="background: rgba(0,0,0,0.5); color: #fff; border: 1px solid rgba(255,255,255,0.2); padding: 4px 8px; min-width: 44px; min-height: 44px; box-sizing: border-box; cursor: pointer; border-radius: 4px; font-size: 18px; transition: border-color 0.2s;" title="${t.title}">${t.id}</button>`;
+        html += `<button class="hud-taunt-btn" data-taunt="${t.id}" data-testid="taunt-btn-${t.id}" style="background: rgba(0,0,0,0.5); color: #fff; border: 1px solid rgba(255,255,255,0.2); padding: 4px 8px; cursor: pointer; border-radius: 4px; font-size: 18px; transition: border-color 0.2s;" title="${t.title}">${t.id}</button>`;
       }
       html += '</div>';
     }
@@ -142,7 +142,7 @@ export class HUD {
     // ── Sound toggle (top right) ─────────────────────────────────
     html += `
       <div style="position: absolute; top: calc(10px + env(safe-area-inset-top, 0px)); right: calc(10px + env(safe-area-inset-right, 0px)); pointer-events: auto;">
-        <button id="hud-sound-btn" data-testid="hud-sound-btn" style="background: rgba(0,0,0,0.5); color: #fff; border: 1px solid #fff; padding: 5px 8px; min-width: 44px; min-height: 44px; box-sizing: border-box; cursor: pointer; border-radius: 4px; font-size: 14px;">${soundEnabled ? '🔊' : '🔇'}</button>
+        <button id="hud-sound-btn" data-testid="hud-sound-btn" style="background: rgba(0,0,0,0.5); color: #fff; border: 1px solid #fff; padding: 5px 8px; cursor: pointer; border-radius: 4px; font-size: 14px;">${soundEnabled ? '🔊' : '🔇'}</button>
       </div>
     `;
 
@@ -150,7 +150,7 @@ export class HUD {
     if (this.supportsFullscreen()) {
       html += `
         <div style="position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%); pointer-events: auto;">
-          <button id="fullscreen-btn" data-testid="fullscreen-btn" style="background: rgba(0,0,0,0.5); color: #fff; border: 1px solid #fff; padding: 5px 10px; min-width: 44px; min-height: 44px; box-sizing: border-box; cursor: pointer; font-size: 12px;">FULLSCREEN</button>
+          <button id="fullscreen-btn" data-testid="fullscreen-btn" style="background: rgba(0,0,0,0.5); color: #fff; border: 1px solid #fff; padding: 5px 10px; cursor: pointer; font-size: 12px;">FULLSCREEN</button>
         </div>
       `;
     }
@@ -222,8 +222,6 @@ export class HUD {
     ship: {
       stats?: { primaryColor?: string };
       isShieldActive?: boolean;
-      isThrusting?: boolean;
-      steeringDirection?: -1 | 0 | 1;
       invulnerabilityTimer?: number;
       energy?: number;
       maxEnergy?: number;
@@ -237,18 +235,12 @@ export class HUD {
       Math.min(100, ((ship.energy ?? 0) / (ship.maxEnergy ?? 100)) * 100),
     );
     const barColor = pct > 40 ? color : pct > 15 ? '#ffaa00' : '#ff3333';
-    const propulsion = [
-      ship.isThrusting ? 'FORWARD THRUST' : '',
-      ship.steeringDirection === -1 ? 'TURN LEFT' :
-        ship.steeringDirection === 1 ? 'TURN RIGHT' : '',
-    ].filter(Boolean).join(' + ');
     return `
       <div style="position: absolute; bottom: 60px; ${positionStyle}; pointer-events: none; width: 180px;">
         <div style="font-size: 10px; color: #888; text-align: center; margin-bottom: 2px;">ENERGY</div>
         <div style="height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden;">
           <div style="height: 100%; width: ${pct}%; background: ${barColor}; border-radius: 3px; transition: width 0.1s, background 0.3s;"></div>
         </div>
-        ${propulsion ? `<div data-testid="propulsion-state" style="font-size: 10px; color: #65d9ff; text-align: center; margin-top: 2px;">${propulsion}</div>` : ''}
         ${ship.isShieldActive ? `<div style="font-size: 10px; color: ${color}; text-align: center; margin-top: 2px;">🛡 SHIELD</div>` : ''}
         ${(ship.invulnerabilityTimer ?? 0) > 0 ? '<div style="font-size: 10px; color: #ffcc00; text-align: center; margin-top: 2px;">✨ RESPAWN</div>' : ''}
       </div>

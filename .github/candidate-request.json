@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "candidateRef": "candidate/osd-0.4.0-dualflight-public-rdte-20261116",
-  "candidateCommitSha": "164e4e91101a5a5eefa46d5336e881e85858f86b",
+  "candidateCommitSha": "c8120953f17a174b663723e3e78142102cc62c77",
   "browserIterations": 2,
-  "requestSequence": 9,
-  "purpose": "Owner-directed automated dual-flight two-human/P2P candidate source qualification on free public GHA; private-required/no deploy until full permutation matrix and V4."
+  "requestSequence": 10,
+  "purpose": "Automated free-tier GHA rerun after exact public candidate typecheck correction; private-required/no deploy; full player matrix separate"
 }

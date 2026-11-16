@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "candidateRef": "candidate/osd-0.4.0-dualflight-public-rdte-20261116",
-  "candidateCommitSha": "0aa73c36f57033c588bd0d40c6cc46c4cda955cf",
+  "candidateCommitSha": "6ea6f0a1f9bdacd2418bb9e86f7ce16efbf0c828",
   "browserIterations": 2,
-  "requestSequence": 11,
-  "purpose": "Owner-directed free-tier automated dual-flight candidate rerun after deterministic RCS regression correction; no deployment (private-required)"
+  "requestSequence": 12,
+  "purpose": "Rerun immutable 0.4.0 dual flight candidate after private #316 RCS and HUD first-failure corrections; 3-browser exact artifact no-deploy preliminary"
 }

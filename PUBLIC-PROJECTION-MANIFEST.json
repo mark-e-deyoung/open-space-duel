@@ -4,7 +4,7 @@
   "qualificationClass": "private-required",
   "projectionPolicySha256": "ca5234697c0020a445bba29cc453402e69e8a9cc88c6381ae6c704de06296250",
   "promotionPolicySha256": "ca5234697c0020a445bba29cc453402e69e8a9cc88c6381ae6c704de06296250",
-  "sourceCommitSha": "7f8a638aef69722cbad46b054411f044f842bd66",
+  "sourceCommitSha": "deada13fcd34a3faa4f17a6efe43e756ff8e69bb",
   "publicVersion": "0.4.0-rc.1",
   "projectionKind": "reviewed-browser-runtime-only",
   "knownOverrides": [
@@ -274,8 +274,8 @@
     },
     {
       "path": "src/ui/hud.ts",
-      "gitBlobSha1": "f57a8f381b8edd0c5e29a09157f460a06bb840a9",
-      "bytes": 11597
+      "gitBlobSha1": "38bf5c4792c7f41d7246c25ea3261a26ef95ac14",
+      "bytes": 12047
     },
     {
       "path": "src/ui/joypad.ts",
@@ -351,5 +351,5 @@
     }
   ],
   "feature": "two-human simulated / dual flight models / manual WebRTC P2P",
-  "sourceReconciliation": "Constructive explicit allow-list over previously classified 0.3.2 candidate, 12 exact private ordinary client blobs and sanitized production main; no private specialized tests or URL E2E test bypass; first public qualification only; added public-safe session classification helper to preexisting public telemetry collector after first native TS failure; corrected deterministic RCS against unmodified public 0.3.2 steering regression via private stacked PR #316"
+  "sourceReconciliation": "Constructive explicit allow-list over previously classified 0.3.2 candidate, 12 exact private ordinary client blobs and sanitized production main; no private specialized tests or URL E2E test bypass; first public qualification only; added public-safe session classification helper to preexisting public telemetry collector after first native TS failure; corrected deterministic RCS against unmodified public 0.3.2 steering regression via private stacked PR #316; source-authoritative HUD restores user-visible paid thrust/yaw for both players, with public earlier behavior parity"
 }

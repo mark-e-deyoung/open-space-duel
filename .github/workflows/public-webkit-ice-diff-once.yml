@@ -1,0 +1,57 @@
+name: Public WebKit RTC ICE differential (one shot)
+
+on:
+  push:
+    branches: [rdte/osd-public-rtc-unreliable-20261116]
+    paths: [.github/workflows/public-webkit-ice-diff-once.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  webkit-ice-differential:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Disposable local static origin
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/osd-webkit-ice
+          printf '%s\n' '<!doctype html><html><title>Public WebKit ICE RDTE</title></html>' > /tmp/osd-webkit-ice/index.html
+          python3 -m http.server 4174 --bind 127.0.0.1 --directory /tmp/osd-webkit-ice >/tmp/osd-webkit-ice.log 2>&1 &
+          echo $! >/tmp/osd-webkit-ice.pid
+          for n in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:4174/ >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/osd-webkit-ice.log
+          exit 1
+      - name: Install public-only Playwright WebKit
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.59.1
+          npx playwright install --with-deps webkit
+      - name: Compare reliable and unreliable host ICE with public STUN control
+        shell: bash
+        run: >-
+          npx playwright test
+          .github/public-tests/webrtc-webkit-ice-diagnostic.spec.cjs
+          --config=.github/public-tests/playwright.config.cjs
+          --project=webkit --workers=1 --retries=0
+      - name: Stop static origin
+        if: always()
+        shell: bash
+        run: |
+          if [ -f /tmp/osd-webkit-ice.pid ]; then
+            kill "$(cat /tmp/osd-webkit-ice.pid)" 2>/dev/null || true
+          fi

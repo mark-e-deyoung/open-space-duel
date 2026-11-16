@@ -4,7 +4,7 @@
   "qualificationClass": "private-required",
   "projectionPolicySha256": "ca5234697c0020a445bba29cc453402e69e8a9cc88c6381ae6c704de06296250",
   "promotionPolicySha256": "ca5234697c0020a445bba29cc453402e69e8a9cc88c6381ae6c704de06296250",
-  "sourceCommitSha": "ebceeebc5e33cb46f04d259e476341038421fa3d",
+  "sourceCommitSha": "7f8a638aef69722cbad46b054411f044f842bd66",
   "publicVersion": "0.4.0-rc.1",
   "projectionKind": "reviewed-browser-runtime-only",
   "knownOverrides": [
@@ -199,8 +199,8 @@
     },
     {
       "path": "src/game/render/canvas.ts",
-      "gitBlobSha1": "71b0a7c41951dc943ae271c1eb053a1f3ef72187",
-      "bytes": 13629
+      "gitBlobSha1": "6088c89106372fde89d186dac803cde0af512ae0",
+      "bytes": 13602
     },
     {
       "path": "src/game/systems/collision.ts",
@@ -351,5 +351,5 @@
     }
   ],
   "feature": "two-human simulated / dual flight models / manual WebRTC P2P",
-  "sourceReconciliation": "Constructive explicit allow-list over previously classified 0.3.2 candidate, 12 exact private ordinary client blobs and sanitized production main; no private specialized tests or URL E2E test bypass; first public qualification only; added public-safe session classification helper to preexisting public telemetry collector after first native TS failure"
+  "sourceReconciliation": "Constructive explicit allow-list over previously classified 0.3.2 candidate, 12 exact private ordinary client blobs and sanitized production main; no private specialized tests or URL E2E test bypass; first public qualification only; added public-safe session classification helper to preexisting public telemetry collector after first native TS failure; corrected deterministic RCS against unmodified public 0.3.2 steering regression via private stacked PR #316"
 }

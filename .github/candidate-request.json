@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "candidateRef": "candidate/osd-0.3.2-rcs-steering-20261105",
-  "candidateCommitSha": "251f04d83b894c892ab74f25c876e0c05f514c86",
-  "browserIterations": 1,
-  "requestSequence": 8,
-  "purpose": "RCS 0.3.2 no-deploy live gameplay HTML5 Canvas pixel+HUD probe across Chromium Firefox WebKit; all earlier native gates remain required"
+  "candidateRef": "candidate/osd-0.4.0-dualflight-public-rdte-20261116",
+  "candidateCommitSha": "164e4e91101a5a5eefa46d5336e881e85858f86b",
+  "browserIterations": 2,
+  "requestSequence": 9,
+  "purpose": "Owner-directed automated dual-flight two-human/P2P candidate source qualification on free public GHA; private-required/no deploy until full permutation matrix and V4."
 }

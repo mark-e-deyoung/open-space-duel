@@ -18,7 +18,8 @@
     "src/game/systems/physics.ts",
     "src/main.ts",
     "src/sim/numeric.ts",
-    "src/ui/hud.ts"
+    "src/ui/hud.ts",
+    "src/utils/telemetryCollector.ts"
   ],
   "files": [
     {
@@ -313,8 +314,8 @@
     },
     {
       "path": "src/utils/telemetryCollector.ts",
-      "gitBlobSha1": "d43fa8c2789ee394cd35a0d08e8d199e422a630b",
-      "bytes": 4431
+      "gitBlobSha1": "90bb885b38b359f026efa49ccbf396393a4cab34",
+      "bytes": 5078
     },
     {
       "path": "tests/steering-energy.test.ts",
@@ -350,5 +351,5 @@
     }
   ],
   "feature": "two-human simulated / dual flight models / manual WebRTC P2P",
-  "sourceReconciliation": "Constructive explicit allow-list over previously classified 0.3.2 candidate, 12 exact private ordinary client blobs and sanitized production main; no private specialized tests or URL E2E test bypass; first public qualification only"
+  "sourceReconciliation": "Constructive explicit allow-list over previously classified 0.3.2 candidate, 12 exact private ordinary client blobs and sanitized production main; no private specialized tests or URL E2E test bypass; first public qualification only; added public-safe session classification helper to preexisting public telemetry collector after first native TS failure"
 }

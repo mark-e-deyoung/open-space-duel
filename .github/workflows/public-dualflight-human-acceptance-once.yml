@@ -1,0 +1,175 @@
+name: Public dual-flight automated human gameplay RDTE one shot
+
+on:
+  push:
+    branches: [rdte/osd-automated-human-acceptance-20261116]
+    paths: [.github/workflows/public-dualflight-human-acceptance-once.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: osd-public-dualflight-human-20261116
+  cancel-in-progress: false
+
+jobs:
+  two-humans-local:
+    name: Local two-human ${{ matrix.browser }} dual-mode ship matrix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          path: harness
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          repository: mark-e-deyoung/open-space-duel
+          ref: 6ea6f0a1f9bdacd2418bb9e86f7ce16efbf0c828
+          path: candidate
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Verify immutable public candidate and classified files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = 6ea6f0a1f9bdacd2418bb9e86f7ce16efbf0c828
+          node harness/.github/public-tests/verify-public-candidate.mjs candidate
+          node -e "const m=require('./candidate/PUBLIC-PROJECTION-MANIFEST.json'); if(m.qualificationClass!=='private-required') process.exit(1)"
+      - name: Build disposable public game artifact
+        shell: bash
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts
+          npm run typecheck
+          npm run build
+      - name: Serve pinned exact local game artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p preview/open-space-duel
+          cp -a candidate/dist/. preview/open-space-duel/
+          python3 -m http.server 4173 --bind 127.0.0.1 --directory preview > /tmp/osd-human-local.log 2>&1 &
+          echo $! >/tmp/osd-human-local.pid
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4173/open-space-duel/ > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/osd-human-local.log
+          exit 1
+      - name: Install public Playwright browser
+        working-directory: harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm init -y > /dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.59.1
+          npx playwright install --with-deps "${{ matrix.browser }}"
+      - name: Run all 18 local two-human ship/mode gameplay scenarios
+        working-directory: harness
+        env:
+          DEPLOYED_BASE_URL: http://127.0.0.1:4173/open-space-duel/
+        shell: bash
+        run: >-
+          npx playwright test
+          .github/public-tests/automated-two-human-local.spec.cjs
+          --config=.github/public-tests/playwright.config.cjs
+          --project="${{ matrix.browser }}" --workers=1 --retries=0
+      - name: Retain public game screenshots and first failures
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: osd-local-human-${{ matrix.browser }}-${{ github.run_id }}
+          path: harness/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Stop disposable server
+        if: always()
+        shell: bash
+        run: |
+          if test -f /tmp/osd-human-local.pid; then
+            kill "$(cat /tmp/osd-human-local.pid)" 2>/dev/null || true
+          fi
+
+  two-browsers-p2p:
+    name: Real host/guest Chrome Firefox, both flight modes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          path: harness
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          repository: mark-e-deyoung/open-space-duel
+          ref: 6ea6f0a1f9bdacd2418bb9e86f7ce16efbf0c828
+          path: candidate
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Verify frozen public-only candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C candidate rev-parse HEAD)" = 6ea6f0a1f9bdacd2418bb9e86f7ce16efbf0c828
+          node harness/.github/public-tests/verify-public-candidate.mjs candidate
+      - name: Build disposable browser-P2P artifact
+        working-directory: candidate
+        run: |
+          npm ci --ignore-scripts
+          npm run build
+      - name: Serve exact static candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p preview/open-space-duel
+          cp -a candidate/dist/. preview/open-space-duel/
+          python3 -m http.server 4173 --bind 127.0.0.1 --directory preview > /tmp/osd-human-p2p.log 2>&1 &
+          echo $! >/tmp/osd-human-p2p.pid
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4173/open-space-duel/ > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/osd-human-p2p.log
+          exit 1
+      - name: Install two independent real browser engines
+        working-directory: harness
+        run: |
+          npm init -y > /dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.59.1
+          npx playwright install --with-deps chromium firefox
+      - name: Exercise 8 real two-browser host/guest mode and role permutations
+        working-directory: harness
+        env:
+          DEPLOYED_BASE_URL: http://127.0.0.1:4173/open-space-duel/
+        run: >-
+          npx playwright test
+          .github/public-tests/automated-two-browser-p2p.spec.cjs
+          --config=.github/public-tests/playwright.config.cjs
+          --project=chromium --workers=1 --retries=0
+      - name: Retain public browser videos and first failures
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: osd-true-p2p-${{ github.run_id }}
+          path: harness/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Stop disposable server
+        if: always()
+        shell: bash
+        run: |
+          if test -f /tmp/osd-human-p2p.pid; then
+            kill "$(cat /tmp/osd-human-p2p.pid)" 2>/dev/null || true
+          fi

@@ -1,0 +1,76 @@
+name: Public Vitest coverage toolchain bakeoff
+on:
+  pull_request:
+    branches: [release-control]
+    paths: ['.github/workflows/public-toolchain-bakeoff.yml']
+permissions:
+  contents: read
+concurrency:
+  group: toolchain-bakeoff-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  bakeoff:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'ci/public-toolchain-bakeoff-20261127'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        vitest: ['1.6.1', '3.2.6']
+    steps:
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '22'
+      - name: Install matched coverage provider and run actual synthetic qualification
+        env:
+          VERSION: ${{ matrix.vitest }}
+        run: |
+          set -euo pipefail
+          mkdir -p evidence fixture
+          cd fixture
+          node -e "require('fs').writeFileSync('package.json',JSON.stringify({name:'synthetic-coverage-fixture',version:'1.0.0',private:true,type:'module',devDependencies:{vite:'5.4.21',vitest:process.env.VERSION,'@vitest/coverage-v8':process.env.VERSION,typescript:'5.8.3'}},null,2))"
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+          npm ci --ignore-scripts --no-audit --no-fund > ../evidence/install.log 2>&1
+          sha256sum package-lock.json > ../evidence/lock.sha256
+          cp package-lock.json ../evidence/package-lock.json
+          mkdir src
+          cat > src/fixture.ts <<'TS'
+          export function impulse(input: number, energy: number): number {
+            if (!Number.isFinite(input) || !Number.isFinite(energy)) return 0;
+            if (energy <= 0) return 0;
+            return Math.max(-energy, Math.min(energy, input));
+          }
+          TS
+          cat > src/fixture.test.ts <<'TS'
+          import { describe, expect, it } from 'vitest';
+          import { impulse } from './fixture.js';
+          describe('synthetic impulse fixture',()=>{
+            it('clamps positive and negative commands',()=>{expect(impulse(8,3)).toBe(3);expect(impulse(-8,3)).toBe(-3);});
+            it('rejects nonfinite inputs',()=>{expect(impulse(NaN,3)).toBe(0);expect(impulse(1,Infinity)).toBe(0);});
+            it('requires energy',()=>{expect(impulse(2,0)).toBe(0);expect(impulse(2,-1)).toBe(0);});
+            it('preserves within-budget commands',()=>expect(impulse(1,2)).toBe(1));
+          });
+          TS
+          cat > vitest.config.ts <<'TS'
+          import { defineConfig } from 'vitest/config';
+          export default defineConfig({test:{coverage:{provider:'v8',include:['src/fixture.ts'],reporter:['text','json-summary'],thresholds:{lines:100,functions:100,branches:100,statements:100}}}});
+          TS
+          npx --no-install tsc --noEmit --strict --skipLibCheck --target ES2022 --module NodeNext --moduleResolution NodeNext src/fixture.ts
+          npx --no-install vitest run --coverage --maxWorkers=1 --minWorkers=1 | tee ../evidence/tests.log
+          cp coverage/coverage-summary.json ../evidence/
+          node <<'NODE'
+          const fs=require('fs');
+          const crypto=require('crypto');
+          const lockBytes=fs.readFileSync('package-lock.json');
+          const pkgs=JSON.parse(lockBytes).packages;
+          const rows=Object.entries(pkgs).filter(([p])=>/(?:^|\/)(glob|inflight|test-exclude|vite|vitest|coverage-v8)$/.test(p)).map(([p,x])=>({path:p,version:x.version,dev:!!x.dev}));
+          const summary={fixture:'synthetic, not private project',version:process.env.VERSION,node:process.version,lockSHA256:crypto.createHash('sha256').update(lockBytes).digest('hex'),obsoleteGlob:rows.filter(x=>x.path.endsWith('/glob')&&x.version.startsWith('7.')).length,inflight:rows.filter(x=>x.path.endsWith('/inflight')).length,rows};
+          fs.writeFileSync('../evidence/summary.json',JSON.stringify(summary,null,2)+'\n');console.log(JSON.stringify(summary));
+          NODE
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: vitest-coverage-${{ matrix.vitest }}
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 14

@@ -52,37 +52,52 @@ jobs:
             res.statusCode=404;res.end('not found');
           });
           const engines={chromium,firefox,webkit};
+          let stage='bootstrap';
           (async()=>{
             let browser,context;
             const results=[];
-            const check=(name,pass)=>{assert.equal(pass,true,name);results.push(name);};
+            const check=(name,pass)=>{assert.equal(pass,true,name);results.push(name);console.log(JSON.stringify({check:name,pass:true}));};
             await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
             try{
               browser=await engines[process.env.BROWSER].launch({timeout:30000});
               context=await browser.newContext();
               const origin='http://127.0.0.1:'+server.address().port;
+              // Register from an uncontrolled page, wait for actual activation
+              // before opening controlled tabs. Do not treat ready or reload
+              // as proof that a page has acquired a controller.
+              const sentinel=await context.newPage();
+              await sentinel.goto(origin+'/outside/',{timeout:15000});
+              stage='install and activate first worker';
+              await sentinel.evaluate(async()=>{await navigator.serviceWorker.register('/probe/sw.js',{scope:'/probe/',updateViaCache:'none'});});
+              await sentinel.waitForFunction(async()=>(await navigator.serviceWorker.getRegistration('/probe/'))?.active?.state==='activated',{},{timeout:20000,polling:100});
+              stage='open two controlled clients';
               const a=await context.newPage();
               await a.goto(origin+'/probe/',{timeout:15000});
-              await a.evaluate(async()=>{await navigator.serviceWorker.register('/probe/sw.js',{scope:'/probe/',updateViaCache:'none'});await navigator.serviceWorker.ready;});
-              await a.reload();
-              await a.waitForFunction(()=>!!navigator.serviceWorker.controller,{},{timeout:15000});
+              await a.waitForFunction(()=>!!navigator.serviceWorker.controller,{},{timeout:15000,polling:100});
               const b=await context.newPage();
-              await b.goto(origin+'/probe/');
-              await b.waitForFunction(()=>!!navigator.serviceWorker.controller,{},{timeout:15000});
+              await b.goto(origin+'/probe/',{timeout:15000});
+              await b.waitForFunction(()=>!!navigator.serviceWorker.controller,{},{timeout:15000,polling:100});
               const read=p=>p.evaluate(()=>fetch('/probe/selected.txt').then(r=>{if(!r.ok)throw Error('asset unavailable');return r.text();}));
               const waiting=p=>p.evaluate(async()=>!!(await navigator.serviceWorker.getRegistration('/probe/'))?.waiting);
               check('two clients controlled by v1',await read(a)==='v1'&&await read(b)==='v1');
+              // Record unexpected controller changes before requesting update.
+              for(const page of [a,b]) await page.evaluate(()=>{
+                window.fixtureControllerChanges=0;
+                navigator.serviceWorker.addEventListener('controllerchange',()=>window.fixtureControllerChanges++);
+              });
+              stage='install second worker and observe both registration views';
               version='v2';
-              await a.evaluate(async()=>{await (await navigator.serviceWorker.getRegistration('/probe/')).update();});
-              await a.waitForFunction(async()=>(await navigator.serviceWorker.getRegistration('/probe/'))?.waiting?.state==='installed',{},{timeout:20000});
+              await sentinel.evaluate(async()=>{await (await navigator.serviceWorker.getRegistration('/probe/')).update();});
+              for(const page of [a,b]) await page.waitForFunction(async()=>(await navigator.serviceWorker.getRegistration('/probe/'))?.waiting?.state==='installed',{},{timeout:20000,polling:100});
               check('v2 waiting while two old clients exist',await waiting(a)&&await waiting(b));
+              check('no unexpected controller change during installation',(await a.evaluate(()=>window.fixtureControllerChanges))===0&&(await b.evaluate(()=>window.fixtureControllerChanges))===0);
               check('both old clients still see only v1',await read(a)==='v1'&&await read(b)==='v1');
               check('both caches independently populated',await a.evaluate(async()=>{const names=await caches.keys();return names.includes('fixture-release-v1')&&names.includes('fixture-release-v2');}));
+              stage='close first old client';
               await a.close();
-              check('remaining old client keeps v2 waiting',await waiting(b)&&await read(b)==='v1');
-              const sentinel=await context.newPage();
-              await sentinel.goto(origin+'/outside/');
+              check('remaining old client keeps v2 waiting',await waiting(b)&&await read(b)==='v1'&&(await b.evaluate(()=>window.fixtureControllerChanges))===0);
               check('out of scope observer uncontrolled',await sentinel.evaluate(()=>navigator.serviceWorker.controller===null));
+              stage='close final old client and observe natural activation';
               await b.close();
               // An out-of-scope page may inspect the registration without
               // becoming an old controlled client. Ask the actual active
@@ -96,11 +111,12 @@ jobs:
                   c.port1.onmessage=e=>{clearTimeout(timer);c.port1.close();resolve(e.data==='v2');};
                   r.active.postMessage('version',[c.port2]);
                 });
-              },{},{timeout:25000});
+              },{},{timeout:25000,polling:100});
               check('v2 activated after last old client closed',true);
+              stage='fresh client reads new release';
               const fresh=await context.newPage();
               await fresh.goto(origin+'/probe/');
-              await fresh.waitForFunction(()=>!!navigator.serviceWorker.controller,{},{timeout:15000});
+              await fresh.waitForFunction(()=>!!navigator.serviceWorker.controller,{},{timeout:15000,polling:100});
               check('fresh client reads only v2',await read(fresh)==='v2');
               check('previous version retained, not silently purged',await fresh.evaluate(async()=>{
                 const old=await caches.open('fixture-release-v1');
@@ -108,5 +124,5 @@ jobs:
               }));
               console.log(JSON.stringify({browser:process.env.BROWSER,checks:results.length,results,scope:'synthetic native worker waiting and cache isolation; no product integration'}));
             }finally{await context?.close();await browser?.close();server.close();}
-          })().catch(error=>{console.error(error.message);server.close();process.exitCode=1;});
+          })().catch(error=>{console.error(JSON.stringify({stage,error:error.message}));server.close();process.exitCode=1;});
           NODE

@@ -32,12 +32,64 @@ async function newGame(page, model, p1, p2) {
   return errors;
 }
 
-async function displayedEnergy(page) {
-  return page.evaluate(() =>
-    [...document.querySelectorAll('[data-testid="hud"] div')]
+// Observe the displayed HUD while input is held, including short paid-torque
+// intervals in inertial flight. Never infer expenditure from a recovered
+// energy bar sampled after release.
+async function observePaidTurn(page, player, key, direction) {
+  await page.evaluate(() => {
+    const hud = document.querySelector('[data-testid="hud"]');
+    if (!hud) throw Error('HUD unavailable');
+    const read = () => [...hud.querySelectorAll('div')]
       .filter(el => el.children.length === 0 && el.textContent?.trim() === 'ENERGY')
-      .map(el => Number.parseFloat(el.nextElementSibling?.firstElementChild?.style.width || 'NaN')),
-  );
+      .map(el => ({
+        energy: Number.parseFloat(el.nextElementSibling?.firstElementChild?.style.width || 'NaN'),
+        propulsion: el.parentElement?.querySelector('[data-testid="propulsion-state"]')?.textContent || '',
+      }));
+    const baseline = read();
+    const samples = [];
+    const observer = new MutationObserver(() => {
+      if (samples.length < 512) samples.push(read());
+    });
+    observer.observe(hud, { subtree:true, childList:true, attributes:true, characterData:true });
+    window.__localHudObservation = { baseline, samples, observer };
+  });
+  try {
+    const baseline = await page.evaluate(() => window.__localHudObservation.baseline);
+    expect(baseline, 'two displayed energy bars').toHaveLength(2);
+    expect(baseline.every(p => Number.isFinite(p.energy))).toBe(true);
+    await page.keyboard.down(key);
+    const result = await page.waitForFunction(({ player, direction }) => {
+      const o = window.__localHudObservation;
+      const other = 1 - player;
+      return o.samples.find(row =>
+        row.length === 2 && row.every(p => Number.isFinite(p.energy)) &&
+        row[player].propulsion.includes(direction) &&
+        row[player].energy < o.baseline[player].energy &&
+        row[other].energy >= o.baseline[other].energy - 1.5 &&
+        !row[other].propulsion.includes('TURN')
+      ) || false;
+    }, { player, direction }, { timeout: 5000 });
+    return { baseline, observed: await result.jsonValue() };
+  } finally {
+    await page.keyboard.up(key);
+    await page.evaluate(() => {
+      window.__localHudObservation?.observer.disconnect();
+      delete window.__localHudObservation;
+    });
+  }
+}
+
+async function togglePause(page, paused) {
+  await page.keyboard.down('Escape');
+  try {
+    const banner = page.getByTestId('paused-banner');
+    if (paused) await expect(banner).toBeVisible();
+    else await expect(banner).toBeHidden();
+  } finally {
+    await page.keyboard.up('Escape');
+  }
+  // Allow the fixed-step input sampler to observe release before another edge.
+  await page.waitForTimeout(150);
 }
 
 async function pressFor(page, keys, milliseconds) {
@@ -53,22 +105,9 @@ for (const model of models) {
         async ({ page }, info) => {
           test.setTimeout(75_000);
           const errors = await newGame(page, model, p1, p2);
-          const baseline = await displayedEnergy(page);
-          expect(baseline, 'two visible player energy bars').toHaveLength(2);
-          expect(baseline.every(Number.isFinite)).toBe(true);
-
-          // Human 1: dedicated A/W/F/Q mappings, P2 has untouched arrows.
-          await pressFor(page, ['a'], 850);
-          const afterP1 = await displayedEnergy(page);
-          expect(afterP1).toHaveLength(2);
-          expect(afterP1[0], 'P1 paid turn consumes P1 energy').toBeLessThan(baseline[0]);
-          expect(afterP1[1], 'P1 cannot spend P2 energy').toBeGreaterThanOrEqual(baseline[1] - 1.5);
-
-          // Human 2: dedicated arrow + Enter/L mappings.
-          const beforeP2 = await displayedEnergy(page);
-          await pressFor(page, ['ArrowRight'], 850);
-          const afterP2 = await displayedEnergy(page);
-          expect(afterP2[1], 'P2 paid turn consumes P2 energy').toBeLessThan(beforeP2[1]);
+          const turnP1 = await observePaidTurn(page, 0, 'a', 'TURN LEFT');
+          // Confirm a separate P2 command, including paid acceleration in inertial mode.
+          const turnP2 = await observePaidTurn(page, 1, 'ArrowRight', 'TURN RIGHT');
           // Combined human input: independent thrust, yaw and weapons.
           await pressFor(page, ['w', 'ArrowUp', 'd', 'ArrowLeft'], 350);
           await pressFor(page, ['f', 'Enter'], 250);
@@ -91,17 +130,15 @@ for (const model of models) {
           expect(pixels.coloured, 'actual game frame must render active pixels').toBeGreaterThan(100);
 
           // Gameplay pause/resume must stop and restart the visible scene.
-          await page.keyboard.press('Escape');
-          await expect(page.getByTestId('paused-banner')).toBeVisible();
-          await page.keyboard.press('Escape');
-          await expect(page.getByTestId('paused-banner')).toBeHidden();
+          await togglePause(page, true);
+          await togglePause(page, false);
 
           await page.screenshot({
             path: info.outputPath(`local-${model}-${p1}-${p2}.png`),
           });
           console.log(JSON.stringify({
             scenario: 'two-human-local', model, p1, p2, browser: info.project.name,
-            baseline, afterP1, afterP2, pixels,
+            turnP1, turnP2, pixels,
             errors,
           }));
           expect(errors, 'uncaught browser exceptions').toEqual([]);

@@ -1,0 +1,167 @@
+name: Ephemeral public tunnel transport probe
+on:
+  pull_request:
+    branches: [release-control]
+    paths: ['.github/workflows/ephemeral-tunnel-transport-probe.yml']
+permissions:
+  contents: read
+concurrency:
+  group: ephemeral-tunnel-probe-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  probe:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'ci/ephemeral-tunnel-transport-probe-20261127'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: d4031750ea52653d92ac7a2fb0f0b49efbf67e8c
+          path: candidate
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '22'
+      - name: Install pinned public test dependencies and verified tunnel binary
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = d4031750ea52653d92ac7a2fb0f0b49efbf67e8c
+          test "$(git hash-object package-lock.json)" = 104d96837373fda7c90b45b8d1cc55e1b22957c9
+          npm ci --ignore-scripts --no-audit --no-fund
+          npx --no-install playwright install chromium firefox
+          curl -fsSL --retry 2 --max-time 90 https://github.com/cloudflare/cloudflared/releases/download/2026.11.1/cloudflared-linux-amd64 -o cloudflared
+          echo '97bb3b02d23a5980fc9c15a1a270e692da1923f103f920d5b16d4931d5ab55e7  cloudflared' | sha256sum -c -
+          chmod 0700 cloudflared
+      - name: Exercise synthetic HTTPS WSS and WebRTC through an ephemeral tunnel
+        working-directory: candidate
+        run: |
+          cat > tunnel-probe.cjs <<'NODE'
+          const http=require('node:http');
+          const fs=require('node:fs');
+          const crypto=require('node:crypto');
+          const {spawn}=require('node:child_process');
+          const {once}=require('node:events');
+          const {WebSocketServer,WebSocket}=require('ws');
+          const {chromium,firefox}=require('playwright');
+          const delay=ms=>new Promise(r=>setTimeout(r,ms));
+          const check=(v,code)=>{if(!v)throw Error(code);};
+          const status={schemaVersion:1,scope:'synthetic transport probe; two browser processes on one public runner; no product code, credentials or user data',stages:[],result:'FAIL'};
+          let tunnel,server,wss,origin; const browsers=[];const peers=new Map();
+          const tokens={host:crypto.randomBytes(32).toString('hex'),guest:crypto.randomBytes(32).toString('hex')};
+          const marker=crypto.randomUUID();
+          let stage='startup';
+          const step=s=>{stage=s;status.stages.push({name:s,result:'START'});console.log('stage: '+s);};
+          const pass=()=>{status.stages.at(-1).result='PASS';};
+          async function waitUntil(fn,ms,code){const end=Date.now()+ms;while(Date.now()<end){try{const v=await fn();if(v)return v;}catch{}await delay(250);}throw Error(code);}
+          async function main(){
+            step('loopback origin');
+            server=http.createServer((req,res)=>{
+              res.setHeader('Cache-Control','no-store');res.setHeader('X-Content-Type-Options','nosniff');
+              if(req.method!=='GET'){res.writeHead(405);return res.end();}
+              if(req.url==='/healthz'){res.writeHead(200,{'Content-Type':'text/plain'});return res.end(marker);}
+              if(req.url==='/'){res.writeHead(200,{'Content-Type':'text/html','Content-Security-Policy':"default-src 'none'; connect-src 'self' wss:; frame-ancestors 'none'"});return res.end('<!doctype html><meta charset="utf-8"><title>Disposable transport fixture</title><p>Test only</p>');}
+              res.writeHead(404);res.end();
+            });
+            wss=new WebSocketServer({noServer:true,maxPayload:65536,perMessageDeflate:false});
+            server.on('upgrade',(req,socket,head)=>{
+              if(req.url!=='/signal'||!origin||req.headers.origin!==origin||wss.clients.size>=4){socket.destroy();return;}
+              wss.handleUpgrade(req,socket,head,ws=>wss.emit('connection',ws));
+            });
+            wss.on('connection',ws=>{
+              let role;let received=0;const expiry=setTimeout(()=>ws.close(1008),4000);
+              ws.on('error',()=>{});
+              ws.on('close',()=>{clearTimeout(expiry);if(role&&peers.get(role)===ws)peers.delete(role);});
+              ws.on('message',(data,binary)=>{
+                try{
+                  if(binary||++received>32)throw Error('limit');
+                  const msg=JSON.parse(data.toString());if(!msg||Array.isArray(msg)||typeof msg!=='object')throw Error('shape');
+                  if(!role){
+                    if(msg.kind!=='auth'||!Object.hasOwn(tokens,msg.role)||tokens[msg.role]!==msg.token||peers.has(msg.role))throw Error('auth');
+                    role=msg.role;peers.set(role,ws);clearTimeout(expiry);return ws.send(JSON.stringify({kind:'admitted',role}));
+                  }
+                  if(msg.kind==='command'&&msg.seq===1)return ws.send(JSON.stringify({kind:'ack',seq:1,role}));
+                  const allowed=(role==='host'&&msg.kind==='offer')||(role==='guest'&&msg.kind==='answer');
+                  if(!allowed||typeof msg.sdp!=='string'||msg.sdp.length>60000)throw Error('signal');
+                  const other=peers.get(role==='host'?'guest':'host');if(!other||other.readyState!==WebSocket.OPEN)throw Error('peer');
+                  other.send(JSON.stringify({kind:msg.kind,sdp:msg.sdp}));
+                }catch{ws.close(1008);}
+              });
+            });
+            server.listen(0,'127.0.0.1');await once(server,'listening');pass();
+            step('quick tunnel registration');
+            let captured='';let candidate;
+            tunnel=spawn('./cloudflared',['tunnel','--no-autoupdate','--protocol','http2','--url','http://127.0.0.1:'+server.address().port],{stdio:['ignore','pipe','pipe']});
+            const collect=buf=>{captured=(captured+buf.toString()).slice(-32768);const m=captured.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com\b/);if(m)candidate=m[0];};
+            tunnel.stdout.on('data',collect);tunnel.stderr.on('data',collect);
+            tunnel.on('error',()=>{});
+            origin=await waitUntil(()=>candidate,35000,'TUNNEL_REGISTRATION_TIMEOUT');pass();
+            step('external HTTPS readiness');
+            await waitUntil(async()=>{const r=await fetch(origin+'/healthz',{signal:AbortSignal.timeout(3000),redirect:'error',cache:'no-store'});return r.ok&&(await r.text())===marker;},40000,'HTTPS_NOT_READY');pass();
+            step('browser admission and role-bound WebSocket commands');
+            const host=await chromium.launch();browsers.push(host);const guest=await firefox.launch();browsers.push(guest);
+            const hp=await host.newPage(),gp=await guest.newPage();
+            for(const [p,role] of [[hp,'host'],[gp,'guest']]){
+              const response=await p.goto(origin,{timeout:15000});check(response?.ok(),'BROWSER_NAV');
+              const admitted=await p.evaluate(async({role,token})=>{
+                const ws=new WebSocket(location.origin.replace(/^https:/,'wss:')+'/signal');
+                window.fixture={ws,queue:[],pc:null,dc:null,data:[]};
+                const f=window.fixture;
+                ws.onmessage=e=>f.queue.push(JSON.parse(e.data));
+                await new Promise((resolve,reject)=>{ws.onopen=resolve;ws.onerror=reject;setTimeout(()=>reject(Error('open')),10000);});
+                ws.send(JSON.stringify({kind:'auth',role,token}));
+                f.receive=async(kind)=>{const end=Date.now()+10000;while(Date.now()<end){const i=f.queue.findIndex(x=>x.kind===kind);if(i>=0)return f.queue.splice(i,1)[0];await new Promise(r=>setTimeout(r,25));}throw Error('receive '+kind);};
+                const a=await f.receive('admitted');
+                ws.send(JSON.stringify({kind:'command',seq:1}));
+                const ack=await f.receive('ack');
+                return isSecureContext&&a.role===role&&ack.seq===1&&ack.role===role;
+              },{role,token:tokens[role]});
+              check(admitted,'ROLE_ACK');
+            }
+            const denied=await hp.evaluate(()=>new Promise(resolve=>{
+              const ws=new WebSocket(location.origin.replace(/^https:/,'wss:')+'/signal');
+              const timer=setTimeout(()=>{ws.close();resolve(false);},5000);
+              ws.onopen=()=>ws.send(JSON.stringify({kind:'auth',role:'host',token:'invalid'}));
+              ws.onmessage=()=>{clearTimeout(timer);ws.close();resolve(false);};
+              ws.onclose=e=>{clearTimeout(timer);resolve(e.code===1008);};
+              ws.onerror=()=>{};
+            }));
+            check(denied,'UNAUTHORIZED_ADMISSION');pass();
+            step('WebRTC offer and answer over WSS');
+            for(const p of [hp,gp])await p.evaluate(()=>{
+              const f=window.fixture;f.pc=new RTCPeerConnection({iceServers:[]});
+              f.bind=dc=>{f.dc=dc;dc.onmessage=e=>f.data.push(e.data);};
+              f.pc.ondatachannel=e=>f.bind(e.channel);
+              f.gather=async()=>{if(f.pc.iceGatheringState==='complete')return;await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('gather')),10000);const cb=()=>{if(f.pc.iceGatheringState==='complete'){clearTimeout(timer);f.pc.removeEventListener('icegatheringstatechange',cb);resolve();}};f.pc.addEventListener('icegatheringstatechange',cb);cb();});};
+            });
+            await hp.evaluate(async()=>{const f=window.fixture;f.bind(f.pc.createDataChannel('fixture'));await f.pc.setLocalDescription(await f.pc.createOffer());await f.gather();f.ws.send(JSON.stringify({kind:'offer',sdp:f.pc.localDescription.sdp}));});
+            await gp.evaluate(async()=>{const f=window.fixture;const offer=await f.receive('offer');await f.pc.setRemoteDescription({type:'offer',sdp:offer.sdp});await f.pc.setLocalDescription(await f.pc.createAnswer());await f.gather();f.ws.send(JSON.stringify({kind:'answer',sdp:f.pc.localDescription.sdp}));});
+            await hp.evaluate(async()=>{const f=window.fixture;const answer=await f.receive('answer');await f.pc.setRemoteDescription({type:'answer',sdp:answer.sdp});});pass();
+            step('direct WebRTC synthetic payload both directions');
+            for(const p of [hp,gp])await p.waitForFunction(()=>window.fixture.dc?.readyState==='open',{},{timeout:12000});
+            await hp.evaluate(()=>window.fixture.dc.send('synthetic-host'));
+            await gp.evaluate(()=>window.fixture.dc.send('synthetic-guest'));
+            await hp.waitForFunction(()=>window.fixture.data.includes('synthetic-guest'),{},{timeout:5000});
+            await gp.waitForFunction(()=>window.fixture.data.includes('synthetic-host'),{},{timeout:5000});
+            pass();status.result='PASS';
+          }
+          (async()=>{
+            try{await main();}
+            catch(e){if(status.stages.length)status.stages.at(-1).result='FAIL';status.failureStage=stage;status.failureClass=e?.name||'Error';process.exitCode=1;}
+            finally{
+              for(const browser of browsers)try{await browser.close();}catch{}
+              for(const client of wss?.clients||[])client.terminate();
+              wss?.close();server?.closeAllConnections();server?.close();
+              if(tunnel){tunnel.kill('SIGTERM');await Promise.race([once(tunnel,'exit').catch(()=>{}),delay(2000)]);if(tunnel.exitCode===null)tunnel.kill('SIGKILL');}
+              fs.mkdirSync('../evidence',{recursive:true});fs.writeFileSync('../evidence/tunnel-probe.json',JSON.stringify(status,null,2)+'\n');console.log(JSON.stringify(status));
+            }
+          })();
+          NODE
+          timeout --kill-after=10s 180s node tunnel-probe.cjs
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: ephemeral-public-tunnel-transport-probe
+          path: evidence/tunnel-probe.json
+          retention-days: 7
+          if-no-files-found: warn

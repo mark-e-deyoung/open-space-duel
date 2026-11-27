@@ -1,0 +1,88 @@
+name: Published bundle baseline
+
+on:
+  push:
+    branches: [ci/published-bundle-baseline-20261127]
+    paths: ['.github/workflows/published-bundle-baseline.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: published-bundle-baseline-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  measure:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Measure immutable published release without building or executing it
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GIT_TERMINAL_PROMPT=0
+          export RELEASE_SHA=ed917796a6f1bdf50a802143c68be4beff246929
+          mkdir -p "${RUNNER_TEMP}/osd-baseline"
+          cd "${RUNNER_TEMP}/osd-baseline"
+          git init -q
+          git -c protocol.file.allow=never fetch --no-tags --depth=1 https://github.com/mark-e-deyoung/open-space-duel.git "$RELEASE_SHA"
+          test "$(git rev-parse FETCH_HEAD)" = "$RELEASE_SHA"
+          python3 - <<'PY'
+          import gzip
+          import hashlib
+          import json
+          import os
+          import re
+          import subprocess
+          from html.parser import HTMLParser
+          from urllib.parse import urlsplit
+
+          commit = os.environ['RELEASE_SHA']
+          base = '/open-space-duel/'
+          def blob(path):
+              return subprocess.check_output(['git', 'show', commit + ':' + path])
+          def metrics(data):
+              return {'bytes': len(data), 'gzip9_bytes': len(gzip.compress(data, compresslevel=9, mtime=0)), 'sha256': hashlib.sha256(data).hexdigest()}
+
+          class Entry(HTMLParser):
+              def __init__(self):
+                  super().__init__()
+                  self.assets = set()
+              def handle_starttag(self, tag, attrs):
+                  attr = dict(attrs)
+                  rel = attr.get('rel', '').split()
+                  url = attr.get('src') if tag == 'script' and attr.get('type') == 'module' else attr.get('href') if tag == 'link' and ('stylesheet' in rel or 'modulepreload' in rel) else None
+                  if url:
+                      u = urlsplit(url)
+                      assert not u.scheme and not u.netloc and not u.query and not u.fragment
+                      assert u.path.startswith(base + 'assets/')
+                      path = u.path[len(base):]
+                      assert re.fullmatch(r'assets/[A-Za-z0-9_.-]+', path)
+                      self.assets.add(path)
+
+          html = blob('index.html')
+          entry = Entry()
+          entry.feed(html.decode('utf-8'))
+          assert entry.assets
+          assert 'assets/index-Q6v9zteN.js' in entry.assets
+          version = json.loads(blob('version.json'))
+          assert version == {'version': '0.3.1'}
+          objects = [metrics(blob(path)) for path in sorted(entry.assets)]
+          inventory = subprocess.check_output(['git', 'ls-tree', '-r', '-z', commit, 'assets/']).split(b'\0')
+          asset_count = sum(bool(row) for row in inventory)
+          report = {
+              'schemaVersion': 1, 'release': version['version'], 'publicCommit': commit,
+              'html': metrics(html),
+              'directEntryAssets': objects,
+              'directEntryBytes': len(html) + sum(x['bytes'] for x in objects),
+              'directEntryGzip9Bytes': metrics(html)['gzip9_bytes'] + sum(x['gzip9_bytes'] for x in objects),
+              'assetDirectoryFileCount': asset_count,
+              'scope': 'Git blob bytes and synthetic per-file gzip level 9; not measured HTTP transfer or runtime performance'
+          }
+          summary = json.dumps(report, sort_keys=True, indent=2)
+          print(summary)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as out:
+              out.write('### Published release entry-asset baseline\n\n```json\n' + summary + '\n```\n')
+          PY

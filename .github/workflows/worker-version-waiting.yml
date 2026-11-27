@@ -1,0 +1,112 @@
+name: Browser worker version waiting probe
+on:
+  pull_request:
+    branches: [release-control]
+    paths: ['.github/workflows/worker-version-waiting.yml']
+permissions:
+  contents: read
+concurrency:
+  group: worker-version-waiting-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  probe:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'ci/worker-version-waiting-20261127'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Install isolated browser harness
+        run: |
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.59.1
+          npx playwright install --with-deps "${{ matrix.browser }}"
+      - name: Verify native waiting and version isolation
+        env:
+          BROWSER: ${{ matrix.browser }}
+        run: |
+          node <<'NODE'
+          const { chromium, firefox, webkit } = require('@playwright/test');
+          const assert = require('node:assert/strict');
+          const http = require('node:http');
+          let version = 'v1';
+          const worker = v => [
+            "const VERSION=" + JSON.stringify(v) + ";",
+            "const CACHE='fixture-release-'+VERSION;",
+            "const ASSET='/probe/releases/'+VERSION+'/chunk.txt';",
+            "self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.add(ASSET))));",
+            // No skipWaiting, clients.claim, cleanup or forced reload.
+            "self.addEventListener('fetch',e=>{if(new URL(e.request.url).pathname==='/probe/selected.txt'){e.respondWith(caches.open(CACHE).then(c=>c.match(ASSET)).then(r=>r||Response.error()));}});",
+            "self.addEventListener('message',e=>{if(e.data==='version'&&e.ports[0])e.ports[0].postMessage(VERSION);});"
+          ].join('\n');
+          const server = http.createServer((req,res) => {
+            res.setHeader('Cache-Control','no-store');
+            if(req.url==='/probe/sw.js'){res.setHeader('Content-Type','application/javascript');return res.end(worker(version));}
+            if(/^\/probe\/releases\/v[12]\/chunk\.txt$/.test(req.url)){res.setHeader('Content-Type','text/plain');return res.end(req.url.includes('/v1/')?'v1':'v2');}
+            if(req.url==='/probe/'||req.url==='/outside/'){res.setHeader('Content-Type','text/html');return res.end('<!doctype html><title>Disposable version fixture</title>');}
+            res.statusCode=404;res.end('not found');
+          });
+          const engines={chromium,firefox,webkit};
+          (async()=>{
+            let browser,context;
+            const results=[];
+            const check=(name,pass)=>{assert.equal(pass,true,name);results.push(name);};
+            await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+            try{
+              browser=await engines[process.env.BROWSER].launch({timeout:30000});
+              context=await browser.newContext();
+              const origin='http://127.0.0.1:'+server.address().port;
+              const a=await context.newPage();
+              await a.goto(origin+'/probe/',{timeout:15000});
+              await a.evaluate(async()=>{await navigator.serviceWorker.register('/probe/sw.js',{scope:'/probe/',updateViaCache:'none'});await navigator.serviceWorker.ready;});
+              await a.reload();
+              await a.waitForFunction(()=>!!navigator.serviceWorker.controller,{},{timeout:15000});
+              const b=await context.newPage();
+              await b.goto(origin+'/probe/');
+              await b.waitForFunction(()=>!!navigator.serviceWorker.controller,{},{timeout:15000});
+              const read=p=>p.evaluate(()=>fetch('/probe/selected.txt').then(r=>{if(!r.ok)throw Error('asset unavailable');return r.text();}));
+              const waiting=p=>p.evaluate(async()=>!!(await navigator.serviceWorker.getRegistration('/probe/'))?.waiting);
+              check('two clients controlled by v1',await read(a)==='v1'&&await read(b)==='v1');
+              version='v2';
+              await a.evaluate(async()=>{await (await navigator.serviceWorker.getRegistration('/probe/')).update();});
+              await a.waitForFunction(async()=>(await navigator.serviceWorker.getRegistration('/probe/'))?.waiting?.state==='installed',{},{timeout:20000});
+              check('v2 waiting while two old clients exist',await waiting(a)&&await waiting(b));
+              check('both old clients still see only v1',await read(a)==='v1'&&await read(b)==='v1');
+              check('both caches independently populated',await a.evaluate(async()=>{const names=await caches.keys();return names.includes('fixture-release-v1')&&names.includes('fixture-release-v2');}));
+              await a.close();
+              check('remaining old client keeps v2 waiting',await waiting(b)&&await read(b)==='v1');
+              const sentinel=await context.newPage();
+              await sentinel.goto(origin+'/outside/');
+              check('out of scope observer uncontrolled',await sentinel.evaluate(()=>navigator.serviceWorker.controller===null));
+              await b.close();
+              // An out-of-scope page may inspect the registration without
+              // becoming an old controlled client. Ask the actual active
+              // worker for its version instead of inferring it from a URL.
+              await sentinel.waitForFunction(async()=>{
+                const r=await navigator.serviceWorker.getRegistration('/probe/');
+                if(!r?.active||r.active.state!=='activated'||r.waiting)return false;
+                return new Promise(resolve=>{
+                  const c=new MessageChannel();
+                  const timer=setTimeout(()=>{c.port1.close();resolve(false);},1000);
+                  c.port1.onmessage=e=>{clearTimeout(timer);c.port1.close();resolve(e.data==='v2');};
+                  r.active.postMessage('version',[c.port2]);
+                });
+              },{},{timeout:25000});
+              check('v2 activated after last old client closed',true);
+              const fresh=await context.newPage();
+              await fresh.goto(origin+'/probe/');
+              await fresh.waitForFunction(()=>!!navigator.serviceWorker.controller,{},{timeout:15000});
+              check('fresh client reads only v2',await read(fresh)==='v2');
+              check('previous version retained, not silently purged',await fresh.evaluate(async()=>{
+                const old=await caches.open('fixture-release-v1');
+                return (await (await old.match('/probe/releases/v1/chunk.txt')).text())==='v1';
+              }));
+              console.log(JSON.stringify({browser:process.env.BROWSER,checks:results.length,results,scope:'synthetic native worker waiting and cache isolation; no product integration'}));
+            }finally{await context?.close();await browser?.close();server.close();}
+          })().catch(error=>{console.error(error.message);server.close();process.exitCode=1;});
+          NODE

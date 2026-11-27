@@ -41,9 +41,75 @@ async function displayedEnergy(page) {
 }
 
 async function pressFor(page, keys, milliseconds) {
-  for (const key of keys) await page.keyboard.down(key);
-  await page.waitForTimeout(milliseconds);
-  for (const key of [...keys].reverse()) await page.keyboard.up(key);
+  const held = [];
+  try {
+    for (const key of keys) { await page.keyboard.down(key); held.push(key); }
+    await page.waitForTimeout(milliseconds);
+  } finally {
+    for (const key of held.reverse()) await page.keyboard.up(key);
+  }
+}
+
+// Capture the actual rendered energy and propulsion together, at HUD updates.
+// Inertial torque stops spending at the angular-speed limit; a later sample
+// after recharge is not a measurement of the command's initial paid impulse.
+async function observePaidTurn(page, player, key, direction) {
+  const baseline = await displayedEnergy(page);
+  expect(baseline).toHaveLength(2);
+  expect(baseline.every(Number.isFinite)).toBe(true);
+  await page.evaluate(() => {
+    const hud = document.querySelector('[data-testid="hud"]');
+    if (!hud) throw new Error('HUD missing');
+    const samples = [];
+    const sample = () => {
+      const bars = [...hud.querySelectorAll('div')].filter(el =>
+        el.children.length === 0 && el.textContent?.trim() === 'ENERGY');
+      if (bars.length !== 2 || samples.length >= 600) return;
+      samples.push(bars.map(el => ({
+        energy: Number.parseFloat(el.nextElementSibling?.firstElementChild?.style.width || 'NaN'),
+        propulsion: el.parentElement?.querySelector('[data-testid="propulsion-state"]')?.textContent || ''
+      })));
+    };
+    const observer = new MutationObserver(sample);
+    observer.observe(hud, { childList: true, subtree: true, attributes: true, characterData: true });
+    window.__osdPublicHudObservation = { samples, observer };
+    sample();
+  });
+  let evidence;
+  try {
+    await page.keyboard.down(key);
+    const readPaid = () => page.evaluate(({ player, direction, baseline }) => {
+      const samples = window.__osdPublicHudObservation.samples;
+      return samples.find(pair => pair[player].propulsion.includes(direction) &&
+        Number.isFinite(pair[player].energy) && pair[player].energy < baseline[player]) || null;
+    }, { player, direction, baseline });
+    await expect.poll(readPaid, { timeout: 2500, intervals: [25, 50, 100],
+      message: 'paid steering must be visible with reduced energy during the command' }).not.toBeNull();
+    evidence = await readPaid();
+    expect(evidence).not.toBeNull();
+    expect(evidence[1 - player].energy, 'one pilot cannot spend the other pilot energy')
+      .toBeGreaterThanOrEqual(baseline[1 - player] - 1.5);
+    expect(evidence[1 - player].propulsion, 'one pilot cannot command the other pilot steering').not.toMatch(/TURN/);
+    return { baseline, paid: evidence };
+  } finally {
+    await page.keyboard.up(key);
+    await page.evaluate(() => {
+      window.__osdPublicHudObservation?.observer.disconnect();
+      delete window.__osdPublicHudObservation;
+    });
+  }
+}
+
+async function setPause(page, paused) {
+  await page.keyboard.down('Escape');
+  try {
+    if (paused) await expect(page.getByTestId('paused-banner')).toBeVisible();
+    else await expect(page.getByTestId('paused-banner')).toBeHidden();
+  } finally { await page.keyboard.up('Escape'); }
+  // Give the fixed-timestep input sampler a key-up edge before pressing again.
+  await page.waitForTimeout(150);
+  if (paused) await expect(page.getByTestId('paused-banner')).toBeVisible();
+  else await expect(page.getByTestId('paused-banner')).toBeHidden();
 }
 
 for (const model of models) {
@@ -53,22 +119,10 @@ for (const model of models) {
         async ({ page }, info) => {
           test.setTimeout(75_000);
           const errors = await newGame(page, model, p1, p2);
-          const baseline = await displayedEnergy(page);
-          expect(baseline, 'two visible player energy bars').toHaveLength(2);
-          expect(baseline.every(Number.isFinite)).toBe(true);
-
-          // Human 1: dedicated A/W/F/Q mappings, P2 has untouched arrows.
-          await pressFor(page, ['a'], 850);
-          const afterP1 = await displayedEnergy(page);
-          expect(afterP1).toHaveLength(2);
-          expect(afterP1[0], 'P1 paid turn consumes P1 energy').toBeLessThan(baseline[0]);
-          expect(afterP1[1], 'P1 cannot spend P2 energy').toBeGreaterThanOrEqual(baseline[1] - 1.5);
-
-          // Human 2: dedicated arrow + Enter/L mappings.
-          const beforeP2 = await displayedEnergy(page);
-          await pressFor(page, ['ArrowRight'], 850);
-          const afterP2 = await displayedEnergy(page);
-          expect(afterP2[1], 'P2 paid turn consumes P2 energy').toBeLessThan(beforeP2[1]);
+          const p1Turn = await observePaidTurn(page, 0, 'a', 'TURN LEFT');
+          // Ensure the first command has ended before observing the second.
+          await expect(page.getByTestId('propulsion-state')).toHaveCount(0);
+          const p2Turn = await observePaidTurn(page, 1, 'ArrowRight', 'TURN RIGHT');
           // Combined human input: independent thrust, yaw and weapons.
           await pressFor(page, ['w', 'ArrowUp', 'd', 'ArrowLeft'], 350);
           await pressFor(page, ['f', 'Enter'], 250);
@@ -91,17 +145,15 @@ for (const model of models) {
           expect(pixels.coloured, 'actual game frame must render active pixels').toBeGreaterThan(100);
 
           // Gameplay pause/resume must stop and restart the visible scene.
-          await page.keyboard.press('Escape');
-          await expect(page.getByTestId('paused-banner')).toBeVisible();
-          await page.keyboard.press('Escape');
-          await expect(page.getByTestId('paused-banner')).toBeHidden();
+          await setPause(page, true);
+          await setPause(page, false);
 
           await page.screenshot({
             path: info.outputPath(`local-${model}-${p1}-${p2}.png`),
           });
           console.log(JSON.stringify({
             scenario: 'two-human-local', model, p1, p2, browser: info.project.name,
-            baseline, afterP1, afterP2, pixels,
+            p1Turn, p2Turn, pixels,
             errors,
           }));
           expect(errors, 'uncaught browser exceptions').toEqual([]);

@@ -39,15 +39,20 @@ jobs:
             "const VERSION=" + JSON.stringify(v) + ";",
             "const CACHE='fixture-release-'+VERSION;",
             "const ASSET='/probe/releases/'+VERSION+'/chunk.txt';",
-            "self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.add(ASSET))));",
+            "const SHELL='/probe/releases/'+VERSION+'/index.html';",
+            "self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll([SHELL,ASSET]))));",
             // No skipWaiting, clients.claim, cleanup or forced reload.
-            "self.addEventListener('fetch',e=>{if(new URL(e.request.url).pathname==='/probe/selected.txt'){e.respondWith(caches.open(CACHE).then(c=>c.match(ASSET)).then(r=>r||Response.error()));}});",
+            // Playwright Firefox #37012 reports null controller for navigations
+            // not served by the worker. Qualify the intended cached-shell path,
+            // not that pass-through variant. Preserve the first failed run.
+            "self.addEventListener('fetch',e=>{const path=new URL(e.request.url).pathname;const key=path==='/probe/selected.txt'?ASSET:path==='/probe/'&&e.request.mode==='navigate'?SHELL:null;if(key)e.respondWith(caches.open(CACHE).then(c=>c.match(key)).then(r=>r||Response.error()));});",
             "self.addEventListener('message',e=>{if(e.data==='version'&&e.ports[0])e.ports[0].postMessage(VERSION);});"
           ].join('\n');
           const server = http.createServer((req,res) => {
             res.setHeader('Cache-Control','no-store');
             if(req.url==='/probe/sw.js'){res.setHeader('Content-Type','application/javascript');return res.end(worker(version));}
             if(/^\/probe\/releases\/v[12]\/chunk\.txt$/.test(req.url)){res.setHeader('Content-Type','text/plain');return res.end(req.url.includes('/v1/')?'v1':'v2');}
+            if(/^\/probe\/releases\/v[12]\/index\.html$/.test(req.url)){const v=req.url.includes('/v1/')?'v1':'v2';res.setHeader('Content-Type','text/html');return res.end('<!doctype html><html data-release="'+v+'"><title>Disposable cached shell</title></html>');}
             if(req.url==='/probe/'||req.url==='/outside/'){res.setHeader('Content-Type','text/html');return res.end('<!doctype html><title>Disposable version fixture</title>');}
             res.statusCode=404;res.end('not found');
           });
@@ -78,8 +83,10 @@ jobs:
               await b.goto(origin+'/probe/',{timeout:15000});
               await b.waitForFunction(()=>!!navigator.serviceWorker.controller,{},{timeout:15000,polling:100});
               const read=p=>p.evaluate(()=>fetch('/probe/selected.txt').then(r=>{if(!r.ok)throw Error('asset unavailable');return r.text();}));
+              const shell=p=>p.evaluate(()=>document.documentElement.dataset.release);
               const waiting=p=>p.evaluate(async()=>!!(await navigator.serviceWorker.getRegistration('/probe/'))?.waiting);
               check('two clients controlled by v1',await read(a)==='v1'&&await read(b)==='v1');
+              check('both clients loaded v1 cached shell',await shell(a)==='v1'&&await shell(b)==='v1');
               // Record unexpected controller changes before requesting update.
               for(const page of [a,b]) await page.evaluate(()=>{
                 window.fixtureControllerChanges=0;
@@ -91,7 +98,7 @@ jobs:
               for(const page of [a,b]) await page.waitForFunction(async()=>(await navigator.serviceWorker.getRegistration('/probe/'))?.waiting?.state==='installed',{},{timeout:20000,polling:100});
               check('v2 waiting while two old clients exist',await waiting(a)&&await waiting(b));
               check('no unexpected controller change during installation',(await a.evaluate(()=>window.fixtureControllerChanges))===0&&(await b.evaluate(()=>window.fixtureControllerChanges))===0);
-              check('both old clients still see only v1',await read(a)==='v1'&&await read(b)==='v1');
+              check('both old clients still see only v1',await read(a)==='v1'&&await read(b)==='v1'&&await shell(a)==='v1'&&await shell(b)==='v1');
               check('both caches independently populated',await a.evaluate(async()=>{const names=await caches.keys();return names.includes('fixture-release-v1')&&names.includes('fixture-release-v2');}));
               stage='close first old client';
               await a.close();
@@ -117,12 +124,12 @@ jobs:
               const fresh=await context.newPage();
               await fresh.goto(origin+'/probe/');
               await fresh.waitForFunction(()=>!!navigator.serviceWorker.controller,{},{timeout:15000,polling:100});
-              check('fresh client reads only v2',await read(fresh)==='v2');
+              check('fresh client reads only v2',await read(fresh)==='v2'&&await shell(fresh)==='v2');
               check('previous version retained, not silently purged',await fresh.evaluate(async()=>{
                 const old=await caches.open('fixture-release-v1');
                 return (await (await old.match('/probe/releases/v1/chunk.txt')).text())==='v1';
               }));
-              console.log(JSON.stringify({browser:process.env.BROWSER,checks:results.length,results,scope:'synthetic native worker waiting and cache isolation; no product integration'}));
+              console.log(JSON.stringify({browser:process.env.BROWSER,checks:results.length,results,scope:'synthetic cached-shell native worker waiting and cache isolation; no product integration or pass-through navigation claim'}));
             }finally{await context?.close();await browser?.close();server.close();}
           })().catch(error=>{console.error(JSON.stringify({stage,error:error.message}));server.close();process.exitCode=1;});
           NODE

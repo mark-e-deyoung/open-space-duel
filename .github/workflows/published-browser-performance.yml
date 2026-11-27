@@ -1,0 +1,113 @@
+name: Published browser performance
+
+on:
+  pull_request:
+    branches: [release-control]
+    paths: ['.github/workflows/published-browser-performance.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: published-browser-performance-${{ github.head_ref }}
+  cancel-in-progress: true
+
+jobs:
+  measure:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'ci/published-browser-performance-20261127'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Prepare immutable published site and isolated measurement harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/osd-perf/site/open-space-duel" "$RUNNER_TEMP/osd-perf/harness"
+          cd "$RUNNER_TEMP/osd-perf"
+          git init -q source
+          git -C source fetch --no-tags --depth=1 https://github.com/mark-e-deyoung/open-space-duel.git ed917796a6f1bdf50a802143c68be4beff246929
+          test "$(git -C source rev-parse FETCH_HEAD)" = ed917796a6f1bdf50a802143c68be4beff246929
+          git -C source show FETCH_HEAD:index.html > site/open-space-duel/index.html
+          git -C source show FETCH_HEAD:version.json > site/open-space-duel/version.json
+          mkdir -p site/open-space-duel/assets
+          git -C source show FETCH_HEAD:assets/index-Q6v9zteN.js > site/open-space-duel/assets/index-Q6v9zteN.js
+          echo 'e7016ab9afdaacd37e83bb606ffb8f55c10f095a6cb07662f83dbe40b9d9cec6  site/open-space-duel/assets/index-Q6v9zteN.js' | sha256sum -c -
+          echo '282813311b1e24de57ccd9a3ccd2bad44990725e052f8fd2cb013656c95b7ebb  site/open-space-duel/index.html' | sha256sum -c -
+          cd harness
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.59.1
+          npx playwright install --with-deps "${{ matrix.browser }}"
+      - name: Measure five fresh and same-context menu and solo readiness pairs
+        shell: bash
+        env:
+          BROWSER: ${{ matrix.browser }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/osd-perf"
+          python3 -m http.server 4173 --bind 127.0.0.1 --directory site >/tmp/osd-perf-server.log 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          for attempt in {1..30}; do
+            curl -fsS http://127.0.0.1:4173/open-space-duel/version.json >/dev/null && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:4173/open-space-duel/version.json >/dev/null
+          cd harness
+          cat > measure.cjs <<'JS'
+          const { chromium, firefox, webkit } = require('@playwright/test');
+          const { performance } = require('node:perf_hooks');
+          const engines = { chromium, firefox, webkit };
+          const url = 'http://127.0.0.1:4173/open-space-duel/';
+          const rows = [];
+          const round = n => Math.round(n * 100) / 100;
+          (async () => {
+            const browser = await engines[process.env.BROWSER].launch({ timeout: 30000 });
+            try {
+              for (let rep = 0; rep < 5; rep++) {
+                const context = await browser.newContext({ viewport: { width: 1120, height: 780 } });
+                try {
+                  // Routing disables HTTP caching: fresh vs same context, not cache-hit times.
+                  await context.route('**/*', route => {
+                    const u = new URL(route.request().url());
+                    return u.origin === new URL(url).origin ? route.continue() : route.abort();
+                  });
+                  await context.addInitScript(() => {
+                    localStorage.setItem('osd_tutorial_dismissed', 'true');
+                    localStorage.setItem('osd_sound_enabled', 'false');
+                  });
+                  const page = await context.newPage();
+                  page.setDefaultTimeout(10000);
+                  for (const state of ['fresh-context', 'same-context']) {
+                    const start = performance.now();
+                    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
+                    const button = page.getByTestId('start-local-btn');
+                    await button.waitFor({ state: 'visible' });
+                    if (!await button.isEnabled()) throw Error('solo action disabled');
+                    const menu = performance.now();
+                    const nav = await page.evaluate(() => {
+                      const n = performance.getEntriesByType('navigation')[0];
+                      const resources = performance.getEntriesByType('resource')
+                        .filter(x => new URL(x.name).origin === location.origin);
+                      return { dclMs: n.domContentLoadedEventEnd, localResources: resources.length,
+                        localTransferBytes: n.transferSize + resources.reduce((sum, x) => sum + x.transferSize, 0) };
+                    });
+                    await button.click();
+                    await page.getByTestId('hud').waitFor({state:'visible'});
+                    const hud = performance.now();
+                    rows.push({ rep, state, menuMs: round(menu-start), menuToHudMs: round(hud-menu), ...nav });
+                  }
+                } finally { await context.close(); }
+              }
+              console.log(JSON.stringify({ browser:process.env.BROWSER, rows,
+                scope:'loopback, external requests blocked; routing disables HTTP cache; HUD visibility is readiness proxy, not first frame or input latency' }));
+            } finally { await browser.close(); }
+          })().catch(() => { console.error('browser performance measurement failed'); process.exitCode = 1; });
+          JS
+          node measure.cjs

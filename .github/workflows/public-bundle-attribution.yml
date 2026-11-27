@@ -1,0 +1,124 @@
+name: Public bundle attribution census
+on:
+  pull_request:
+    branches: [release-control]
+    paths: ['.github/workflows/public-bundle-attribution.yml']
+permissions:
+  contents: read
+concurrency:
+  group: public-bundle-attribution-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  census:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'ci/public-bundle-attribution-20261127'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: d4031750ea52653d92ac7a2fb0f0b49efbf67e8c
+          path: candidate
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '22'
+      - name: Verify pinned public source and build without instrumentation
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = d4031750ea52653d92ac7a2fb0f0b49efbf67e8c
+          test "$(git hash-object package-lock.json)" = 104d96837373fda7c90b45b8d1cc55e1b22957c9
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run build
+          test "$(git hash-object package-lock.json)" = 104d96837373fda7c90b45b8d1cc55e1b22957c9
+      - name: Compare instrumented build and inventory rendered dependency notices
+        working-directory: candidate
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import crypto from 'node:crypto';
+          import assert from 'node:assert/strict';
+          import {build} from 'vite';
+          const root=fs.realpathSync(process.cwd());
+          const lock=JSON.parse(fs.readFileSync('package-lock.json','utf8'));
+          const hash=b=>crypto.createHash('sha256').update(b).digest('hex');
+          const inventory=(dir,rel='')=>fs.readdirSync(path.join(dir,rel)).sort().flatMap(name=>{
+            const p=path.join(rel,name),f=path.join(dir,p),s=fs.lstatSync(f);
+            if(s.isDirectory())return inventory(dir,p);
+            assert(s.isFile()&&!s.isSymbolicLink());
+            const b=fs.readFileSync(f);return [{path:p,bytes:b.length,sha256:hash(b)}];
+          });
+          const baseline=inventory('dist');
+          const packages=new Map(),chunks=[],unmapped=[];
+          function packageOf(id){
+            const normalized=id.replace(/^\0+/,'').split('?')[0].replaceAll('\\','/');
+            const prefix=root+'/';
+            if(!normalized.startsWith(prefix))return null;
+            const relative=normalized.slice(prefix.length);
+            if(!relative.includes('node_modules/'))return null;
+            const parts=relative.split('/');
+            const i=parts.lastIndexOf('node_modules');
+            const end=i+1+(parts[i+1]?.startsWith('@')?2:1);
+            const key=parts.slice(0,end).join('/');
+            return key;
+          }
+          await build({build:{outDir:'dist-attribution',emptyOutDir:true},plugins:[{
+            name:'public-bundle-attribution',apply:'build',enforce:'post',
+            generateBundle(_options,bundle){
+              for(const item of Object.values(bundle)){
+                if(item.type!=='chunk')continue;
+                const deps=new Set();let virtualCount=0,projectCount=0;
+                for(const [id,info] of Object.entries(item.modules)){
+                  if(info.renderedLength===0)continue;
+                  const key=packageOf(id);
+                  if(!key){
+                    if(id.includes('node_modules/'))unmapped.push({chunk:item.fileName,kind:'unmapped dependency module'});
+                    else if(id.startsWith(root+'/'))projectCount++;
+                    else virtualCount++;
+                    continue;
+                  }
+                  deps.add(key);
+                  if(!packages.has(key))packages.set(key,new Set());
+                  packages.get(key).add(item.fileName);
+                }
+                chunks.push({file:item.fileName,packages:[...deps].sort(),projectCount,virtualCount});
+              }
+            }
+          }]});
+          const observed=inventory('dist-attribution');
+          const rows=[];
+          for(const [key,files] of [...packages].sort(([a],[b])=>a.localeCompare(b))){
+            const entry=lock.packages[key],dir=path.resolve(root,key);
+            if(!entry||!dir.startsWith(root+'/node_modules/')||!fs.existsSync(dir)||fs.realpathSync(dir)!==dir){
+              rows.push({path:key,status:'needs-review',chunks:[...files].sort()});continue;
+            }
+            const meta=JSON.parse(fs.readFileSync(path.join(dir,'package.json'),'utf8'));
+            const notices=[];
+            for(const name of fs.readdirSync(dir).sort()){
+              if(!/^(?:licen[cs]e|copying|notice|copyright|third[-_ ]party)(?:[._-]|$)/i.test(name))continue;
+              const file=path.join(dir,name),s=fs.lstatSync(file);
+              if(s.isFile()&&!s.isSymbolicLink()&&s.size<=1024*1024){
+                const b=fs.readFileSync(file);notices.push({name,bytes:b.length,sha256:hash(b)});
+              }else notices.push({name,status:'needs-review'});
+            }
+            rows.push({path:key,name:meta.name,version:meta.version,lockedVersion:entry.version,license:meta.license??null,lockedLicense:entry.license??null,dev:!!entry.dev,chunks:[...files].sort(),notices,status:'mapped'});
+          }
+          const exact=JSON.stringify(baseline)===JSON.stringify(observed);
+          const gaps=rows.filter(r=>r.status!=='mapped'||r.version!==r.lockedVersion||JSON.stringify(r.license)!==JSON.stringify(r.lockedLicense)||!r.notices?.some(n=>n.sha256)).map(r=>r.path);
+          const report={schemaVersion:1,scope:'rendered Rollup modules of previously public candidate; virtual/generated modules, copied assets and legal grant still require separate review',candidate:'d4031750ea52653d92ac7a2fb0f0b49efbf67e8c',lockBlob:'104d96837373fda7c90b45b8d1cc55e1b22957c9',exactBuildBytes:exact,baseline,observed,chunks:chunks.sort((a,b)=>a.file.localeCompare(b.file)),packages:rows,unmapped,gaps};
+          fs.mkdirSync('../evidence',{recursive:true});
+          fs.writeFileSync('../evidence/bundle-attribution.json',JSON.stringify(report,null,2)+'\n');
+          console.log(JSON.stringify({exactBuildBytes:exact,outputFiles:baseline.length,chunks:chunks.length,renderedPackages:rows.length,devPackages:rows.filter(r=>r.dev).length,unmapped:unmapped.length,noticeOrMetadataGaps:gaps.length,scope:report.scope}));
+          assert(exact,'instrumented output differs from baseline');
+          assert(chunks.length>0&&rows.length>0,'empty attribution');
+          assert.equal(unmapped.length,0,'unmapped dependency modules');
+          assert.equal(gaps.length,0,'dependency notice or metadata gaps');
+          NODE
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: public-bundle-attribution
+          path: evidence/bundle-attribution.json
+          retention-days: 7
+          if-no-files-found: warn

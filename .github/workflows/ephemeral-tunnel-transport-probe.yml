@@ -89,15 +89,54 @@ jobs:
               });
             });
             server.listen(0,'127.0.0.1');await once(server,'listening');pass();
-            step('quick tunnel registration');
-            let captured='';let candidate;
-            tunnel=spawn('./cloudflared',['tunnel','--no-autoupdate','--protocol','http2','--url','http://127.0.0.1:'+server.address().port],{stdio:['ignore','pipe','pipe']});
-            const collect=buf=>{captured=(captured+buf.toString()).slice(-32768);const m=captured.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com\b/);if(m)candidate=m[0];};
-            tunnel.stdout.on('data',collect);tunnel.stderr.on('data',collect);
-            tunnel.on('error',()=>{});
-            origin=await waitUntil(()=>candidate,35000,'TUNNEL_REGISTRATION_TIMEOUT');pass();
-            step('external HTTPS readiness');
-            await waitUntil(async()=>{const r=await fetch(origin+'/healthz',{signal:AbortSignal.timeout(3000),redirect:'error',cache:'no-store'});return r.ok&&(await r.text())===marker;},40000,'HTTPS_NOT_READY');pass();
+            step('local origin readiness');
+            const local=await fetch('http://127.0.0.1:'+server.address().port+'/healthz',{signal:AbortSignal.timeout(3000)});
+            check(local.ok&&(await local.text())===marker,'LOCAL_ORIGIN');pass();
+            step('quick tunnel protocol and external HTTPS readiness');
+            status.attempts=[];
+            const {connect}=require('node:net');
+            status.tcp7844=await Promise.all(['region1.v2.argotunnel.com','region2.v2.argotunnel.com'].map(host=>new Promise(resolve=>{
+              const s=connect({host,port:7844});let done=false;const finish=x=>{if(done)return;done=true;s.destroy();resolve(x);};
+              s.setTimeout(4000);s.on('connect',()=>finish('reachable'));s.on('timeout',()=>finish('timeout'));s.on('error',e=>finish(['ENOTFOUND','EAI_AGAIN','ECONNREFUSED','ETIMEDOUT','ENETUNREACH'].includes(e.code)?e.code:'other'));
+            })));
+            async function stopTunnel(){
+              if(!tunnel)return;
+              const t=tunnel;tunnel=null;
+              if(t.exitCode!==null||t.signalCode!==null)return;
+              const exited=once(t,'exit').catch(()=>{});t.kill('SIGTERM');
+              await Promise.race([exited,delay(2000)]);
+              if(t.exitCode===null&&t.signalCode===null)t.kill('SIGKILL');
+            }
+            let live=false;
+            for(const protocol of ['quic','http2']){
+              const a={protocol,hostnameAssigned:false,edgeRegistered:false,logCategories:[],httpStatuses:[],fetchErrors:[],originReached:false};
+              status.attempts.push(a);origin=undefined;
+              let captured='',candidate;
+              const categories=new Set(),httpStatuses=new Set(),fetchErrors=new Set();
+              const summarize=()=>{a.logCategories=[...categories].sort();a.httpStatuses=[...httpStatuses].sort((x,y)=>x-y);a.fetchErrors=[...fetchErrors].sort();};
+              const classify=s=>{
+                if(/registered tunnel connection/i.test(s))a.edgeRegistered=true;
+                for(const [k,re] of Object.entries({dns:/edge discovery|no such host|lookup .* failed/i,quic:/failed to dial.*quic|quic.*timeout|failed to establish.*quic/i,tcp:/dial tcp.*(?:timeout|refused|unreachable)/i,tls:/tls.*(?:error|fail|timeout)|certificate.*(?:error|fail)/i,timeout:/i\/o timeout|context deadline exceeded/i,registration:/unable to establish connection|serve tunnel error|failed to register/i,precheck:/connectivity pre.check|pre.flight/i,origin:/unable to reach the origin service|origin connection error/i}))if(re.test(s))categories.add(k);
+              };
+              tunnel=spawn('./cloudflared',['tunnel','--no-autoupdate','--protocol',protocol,'--url','http://127.0.0.1:'+server.address().port],{stdio:['ignore','pipe','pipe']});
+              const collect=buf=>{captured=(captured+buf.toString()).slice(-32768);classify(captured);const m=captured.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com\b/);if(m){candidate=m[0];a.hostnameAssigned=true;}};
+              tunnel.stdout.on('data',collect);tunnel.stderr.on('data',collect);tunnel.on('error',()=>categories.add('spawn'));
+              try{
+                origin=await waitUntil(()=>candidate,25000,'TUNNEL_REGISTRATION_TIMEOUT');
+                await waitUntil(async()=>{
+                  try{
+                    const r=await fetch(origin+'/healthz',{signal:AbortSignal.timeout(4000),redirect:'error',cache:'no-store'});
+                    httpStatuses.add(r.status);const body=await r.text();
+                    if(r.ok&&body===marker){a.originReached=true;return true;}
+                    if(r.ok)categories.add('unexpected-origin-response');
+                    if(/error\s*1033|cloudflare tunnel error/i.test(body.slice(0,30000)))categories.add('edge-route-unavailable');
+                  }catch(e){const c=e.cause?.code||e.code||e.name;fetchErrors.add(['ENOTFOUND','EAI_AGAIN','ECONNREFUSED','ETIMEDOUT','ENETUNREACH','UND_ERR_CONNECT_TIMEOUT','UND_ERR_SOCKET','TimeoutError','AbortError','TypeError'].includes(c)?c:'other');}
+                    return false;
+                },45000,'HTTPS_NOT_READY');
+                live=true;summarize();break;
+              }catch{summarize();await stopTunnel();a.connectorStopped=true;}
+            }
+            check(live,'NO_QUALIFIED_TUNNEL_PROTOCOL');pass();
             step('browser admission and role-bound WebSocket commands');
             const host=await chromium.launch();browsers.push(host);const guest=await firefox.launch();browsers.push(guest);
             const hp=await host.newPage(),gp=await guest.newPage();
@@ -157,7 +196,7 @@ jobs:
             }
           })();
           NODE
-          timeout --kill-after=10s 180s node tunnel-probe.cjs
+          timeout --kill-after=10s 300s node tunnel-probe.cjs
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:

@@ -1,0 +1,66 @@
+name: Local input observation qualification
+on:
+  pull_request:
+    branches: [ci/gameplay-release-gates-20261127]
+    paths: ['.github/public-tests/automated-two-human-local.spec.cjs', '.github/workflows/local-input-observation.yml']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: local-input-observation-${{ github.head_ref }}
+  cancel-in-progress: true
+jobs:
+  local:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'ci/local-input-observation-20261127'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          path: harness
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Download original public build without rebuilding
+        uses: actions/download-artifact@v8
+        with:
+          name: osd-spa-build
+          run-id: 45977620765
+          github-token: ${{ github.token }}
+          path: artifact
+      - name: Check archive and candidate identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'd3ef80331e0caccbc4f1535927e85c918beaea2f3edce411bd53dbe4795ea58b  artifact/osd-spa.tar.gz' | sha256sum -c -
+          node harness/.github/public-tests/verify-public-build.mjs artifact private-required
+          test "$(node -p "require('./artifact/PUBLIC-BUILD-RECEIPT.json').publicCandidateSha")" = d4031750ea52653d92ac7a2fb0f0b49efbf67e8c
+          mkdir -p preview/open-space-duel
+          tar -xzf artifact/osd-spa.tar.gz -C preview/open-space-duel
+      - name: Install exact public browser test tool
+        working-directory: harness
+        run: |
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.59.1
+          npx playwright install --with-deps "${{ matrix.browser }}"
+      - name: Run all 18 local gameplay cases per browser
+        working-directory: harness
+        env:
+          DEPLOYED_BASE_URL: http://127.0.0.1:4173/open-space-duel/
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m http.server 4173 --bind 127.0.0.1 --directory ../preview >/tmp/osd-local-preview.log 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl -fsS "$DEPLOYED_BASE_URL" >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS "$DEPLOYED_BASE_URL" >/dev/null
+          npx playwright test .github/public-tests/automated-two-human-local.spec.cjs --config=.github/public-tests/playwright.config.cjs --project="${{ matrix.browser }}" --workers=1 --retries=0

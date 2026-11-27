@@ -1,0 +1,150 @@
+name: Public playable candidate and visual evidence
+on:
+  pull_request:
+    branches: [release-control]
+    paths: ['.github/workflows/public-playable-evidence.yml']
+permissions:
+  contents: read
+concurrency:
+  group: playable-evidence-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  capture:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'ci/public-playable-evidence-20261127'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: d4031750ea52653d92ac7a2fb0f0b49efbf67e8c
+          path: candidate
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '22'
+      - name: Build immutable public candidate and package the actual static product
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = d4031750ea52653d92ac7a2fb0f0b49efbf67e8c
+          test "$(git hash-object package-lock.json)" = 104d96837373fda7c90b45b8d1cc55e1b22957c9
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run build
+          test "$(git hash-object package-lock.json)" = 104d96837373fda7c90b45b8d1cc55e1b22957c9
+          mkdir -p ../playable/open-space-duel ../visual
+          cp -a dist/. ../playable/open-space-duel/
+          (cd ../playable && find open-space-duel -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+          cat > ../playable/README.txt <<'TXT'
+          Open Space Duel — previously public 0.4.0-rc.1 R&D build, not an approved release.
+          Extract this archive to an empty directory. From that directory, run:
+            python3 -m http.server 8000 --bind 127.0.0.1
+          Open http://127.0.0.1:8000/open-space-duel/ in a browser.
+          This is a local test copy; local play and visual evaluation only.
+          Multiplayer acceptance and release gates remain outstanding.
+          TXT
+          npx --no-install playwright install chromium
+      - name: Capture actual rendered menus and local dual-flight gameplay
+        working-directory: candidate
+        run: |
+          cat > capture-public.cjs <<'NODE'
+          const fs=require('node:fs');
+          const crypto=require('node:crypto');
+          const {spawn}=require('node:child_process');
+          const {chromium}=require('playwright');
+          const {expect}=require('@playwright/test');
+          const base='http://127.0.0.1:8000/open-space-duel/';
+          const results={scope:'previously public immutable candidate; local synthetic pilots only; not multiplayer or release acceptance',candidate:'d4031750ea52653d92ac7a2fb0f0b49efbf67e8c',captures:[],scenarios:[],status:'FAIL'};
+          const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+          let browser,server;
+          async function capture(page,name){
+            const path='../visual/'+name+'.png';
+            const bytes=await page.screenshot({path,animations:'disabled'});
+            results.captures.push({name:name+'.png',bytes:bytes.length,sha256:crypto.createHash('sha256').update(bytes).digest('hex')});
+          }
+          async function focus(page){
+            await page.bringToFront();
+            const point=await page.locator('#game-canvas').evaluate(el=>{
+              const r=el.getBoundingClientRect();
+              for(const x of [.65,.75,.55,.85])for(const y of [.35,.50,.65,.25,.75]){
+                const p={x:r.left+r.width*x,y:r.top+r.height*y};
+                if(document.elementFromPoint(p.x,p.y)===el)return p;
+              }return null;
+            });
+            expect(point).not.toBeNull();
+            await page.mouse.click(point.x,point.y);
+            await expect.poll(()=>page.evaluate(()=>document.hasFocus()&&!!document.activeElement&&!document.activeElement.closest('button,input,select,textarea,a[href],[role="dialog"]'))).toBe(true);
+          }
+          async function pageFor(viewport,touch){
+            const ctx=await browser.newContext({viewport,hasTouch:touch,isMobile:touch,deviceScaleFactor:1});
+            // The artifact is a local-only static preview. No external calls or account data.
+            await ctx.route('**/*',route=>new URL(route.request().url()).origin==='http://127.0.0.1:8000'?route.continue():route.abort());
+            await ctx.addInitScript(()=>{
+              localStorage.setItem('osd_tutorial_dismissed','true');
+              localStorage.setItem('osd_sound_enabled','false');
+            });
+            const page=await ctx.newPage();
+            await page.goto(base,{waitUntil:'domcontentloaded'});
+            await expect(page.getByTestId('main-menu')).toBeVisible();
+            return {ctx,page};
+          }
+          async function run(){
+            server=spawn('python3',['-m','http.server','8000','--bind','127.0.0.1'],{cwd:'../playable',stdio:'ignore'});
+            let ready=false;
+            for(let i=0;i<40;i++){try{const r=await fetch(base,{signal:AbortSignal.timeout(500)});if(r.ok){ready=true;break;}}catch{}await sleep(250);}
+            expect(ready).toBe(true);
+            browser=await chromium.launch();
+            for(const [model,p1,p2] of [['arcade','interceptor','dreadnought'],['inertial','standard','interceptor']]){
+              const {ctx,page}=await pageFor({width:1120,height:780},false);
+              const failures=[];page.on('pageerror',()=>failures.push('pageerror'));
+              try{
+                await page.getByTestId('flight-model-select').selectOption(model);
+                await page.getByTestId('ship-card-'+p1).click();
+                await page.getByTestId('p2-ship-card-'+p2).click();
+                await capture(page,model+'-ship-selection');
+                await page.getByTestId('start-local-multi-btn').click();
+                await expect(page.getByTestId('main-menu')).toBeHidden();
+                await expect(page.getByTestId('hud')).toBeVisible();
+                await expect(page.getByTestId('p1-stats')).toHaveCount(2);
+                await focus(page);
+                for(const key of ['w','ArrowUp','f','Enter'])await page.keyboard.down(key);
+                try{
+                  await expect.poll(()=>page.getByTestId('propulsion-state').allTextContents()).toEqual(expect.arrayContaining([expect.stringContaining('FORWARD THRUST')]));
+                  await capture(page,model+'-active-duel');
+                }finally{for(const key of ['Enter','f','ArrowUp','w'])await page.keyboard.up(key);}
+                const pixels=await page.locator('#game-canvas').evaluate(canvas=>{
+                  const data=canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height).data;
+                  let n=0;for(let i=0;i<data.length;i+=4)if(data[i]+data[i+1]+data[i+2]>80)n++;
+                  return {width:canvas.width,height:canvas.height,coloured:n};
+                });
+                expect(pixels.coloured).toBeGreaterThan(100);
+                await page.keyboard.down('Escape');
+                try{await expect(page.getByTestId('paused-banner')).toBeVisible();}finally{await page.keyboard.up('Escape');}
+                await capture(page,model+'-paused');
+                expect(failures).toEqual([]);
+                results.scenarios.push({model,p1,p2,pixels,errors:failures.length});
+              }finally{await ctx.close();}
+            }
+            for(const [name,viewport] of [['mobile-portrait',{width:390,height:844}],['mobile-landscape',{width:844,height:390}]]){
+              const {ctx,page}=await pageFor(viewport,true);
+              try{await capture(page,name+'-menu');}finally{await ctx.close();}
+            }
+            results.status='PASS';
+          }
+          (async()=>{try{await run();}catch(e){results.failureClass=e.name;console.error('visual run failed: '+e.name);process.exitCode=1;}
+            finally{await browser?.close();server?.kill('SIGTERM');fs.writeFileSync('../visual/results.json',JSON.stringify(results,null,2)+'\n');console.log(JSON.stringify(results));}})();
+          NODE
+          timeout --kill-after=10s 240s node capture-public.cjs
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: public-gameplay-visual-evidence
+          path: visual/
+          if-no-files-found: warn
+          retention-days: 14
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: success()
+        with:
+          name: public-playable-rc-evaluation
+          path: playable/
+          if-no-files-found: error
+          retention-days: 14

@@ -1,0 +1,98 @@
+name: Browser offline capability probe
+on:
+  pull_request:
+    branches: [release-control]
+    paths: [.github/workflows/browser-offline-capability-probe.yml]
+permissions:
+  contents: read
+concurrency:
+  group: browser-offline-probe-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  native-browser:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    name: ${{ matrix.browser }} native Cache Storage and worker
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Install disposable browser harness
+        run: |
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.59.1
+          npx playwright install --with-deps "${{ matrix.browser }}"
+      - name: Exercise isolated localhost platform primitives
+        env:
+          BROWSER: ${{ matrix.browser }}
+        run: |
+          node <<'NODE'
+          const { chromium, firefox, webkit } = require('@playwright/test');
+          const http = require('node:http');
+          const assert = require('node:assert/strict');
+          const { createHash } = require('node:crypto');
+          const body = 'Synthetic offline capability fixture\n';
+          const worker = "self.addEventListener('install',e=>e.waitUntil(self.skipWaiting()));" +
+            "self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));" +
+            "self.addEventListener('fetch',e=>{if(new URL(e.request.url).pathname==='/probe/asset.txt'){e.respondWith(caches.open('probe-active').then(c=>c.match(e.request)).then(r=>r||fetch(e.request)));}});";
+          const server = http.createServer((req,res) => {
+            res.setHeader('Cache-Control','no-store');
+            if (req.url === '/probe/') { res.setHeader('Content-Type','text/html'); return res.end('<!doctype html><title>Offline capability fixture</title>'); }
+            if (req.url === '/probe/sw.js') { res.setHeader('Content-Type','application/javascript'); return res.end(worker); }
+            if (req.url === '/probe/asset.txt') { res.setHeader('Content-Type','text/plain'); return res.end(body); }
+            res.statusCode=404; res.end('not found');
+          });
+          const deadline = setTimeout(() => { console.error('probe deadline exceeded'); process.exit(1); }, 90000);
+          let browser;
+          (async () => {
+            await new Promise((r,j)=>server.once('error',j).listen(0,'127.0.0.1',r));
+            const base = 'http://127.0.0.1:'+server.address().port+'/probe/';
+            browser = await ({chromium,firefox,webkit})[process.env.BROWSER].launch();
+            const ctx = await browser.newContext({ serviceWorkers:'allow' });
+            const page = await ctx.newPage();
+            await page.goto(base);
+            const before = await page.evaluate(async () => {
+              if (!isSecureContext || !globalThis.caches || !crypto.subtle || !navigator.serviceWorker) throw Error('required browser primitive absent');
+              const url = new URL('asset.txt',location.href).href;
+              const response = await fetch(url, {cache:'no-store',credentials:'omit'});
+              if (!response.ok || response.url!==url) throw Error('unexpected fixture response');
+              const active = await caches.open('probe-active');
+              await active.put(url,response);
+              const stage = await caches.open('probe-stage');
+              await stage.put(url,new Response('Different synthetic bytes'));
+              const bytes = await (await active.match(url)).arrayBuffer();
+              const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),x=>x.toString(16).padStart(2,'0')).join('');
+              const stageText = await (await stage.match(url)).text();
+              if (stageText!=='Different synthetic bytes') throw Error('stage content mismatch');
+              await caches.delete('probe-stage');
+              await navigator.serviceWorker.register('sw.js',{scope:'./'});
+              await navigator.serviceWorker.ready;
+              if (!navigator.serviceWorker.controller) await new Promise(resolve=>navigator.serviceWorker.addEventListener('controllerchange',resolve,{once:true}));
+              return {digest, cacheNames:await caches.keys(), controller:!!navigator.serviceWorker.controller, webLocks:!!navigator.locks};
+            });
+            assert.equal(before.digest,createHash('sha256').update(body).digest('hex'));
+            assert.deepEqual(before.cacheNames,['probe-active']);
+            assert.equal(before.controller,true);
+            // Stop the origin entirely; demonstrate a cached response, not an HTTP cache hit.
+            await new Promise(r=>{server.close(r);server.closeAllConnections();});
+            const offline = await page.evaluate(async () => {
+              const cached = await (await fetch('asset.txt',{cache:'no-store'})).text();
+              let uncachedRejected=false;
+              try { await fetch('absent-'+Date.now()+'.txt',{cache:'no-store'}); } catch { uncachedRejected=true; }
+              return {cached,uncachedRejected};
+            });
+            assert.equal(offline.cached,body);
+            assert.equal(offline.uncachedRejected,true);
+            console.log(JSON.stringify({browser:process.env.BROWSER,verifiedCacheBytes:true,stageDeletionPreservedActive:true,workerControlled:true,originStopped:true,uncachedRequestRejected:true,webLocks:before.webLocks}));
+            await ctx.close();
+          })().catch(e=>{console.error('platform probe failed:',e.name,e.message);process.exitCode=1;}).finally(async()=>{
+            clearTimeout(deadline);
+            if(browser) await browser.close();
+            if(server.listening){server.closeAllConnections();server.close();}
+          });
+          NODE

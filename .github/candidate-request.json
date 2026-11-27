@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "candidateRef": "candidate/osd-0.4.0-dualflight-public-rdte-20261116",
-  "candidateCommitSha": "6ea6f0a1f9bdacd2418bb9e86f7ce16efbf0c828",
+  "candidateRef": "candidate/osd-0.4.0-qualification-20261127",
+  "candidateCommitSha": "d4031750ea52653d92ac7a2fb0f0b49efbf67e8c",
   "browserIterations": 2,
-  "requestSequence": 12,
-  "purpose": "Rerun immutable 0.4.0 dual flight candidate after private #316 RCS and HUD first-failure corrections; 3-browser exact artifact no-deploy preliminary"
+  "requestSequence": 13,
+  "purpose": "Qualify corrected local duel HUD and sanitized public release source; no deployment until gameplay acceptance"
 }

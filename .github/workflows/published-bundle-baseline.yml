@@ -1,10 +1,9 @@
 name: Published bundle baseline
 
 on:
-  push:
-    branches: [ci/published-bundle-baseline-20261127]
+  pull_request:
+    branches: [release-control]
     paths: ['.github/workflows/published-bundle-baseline.yml']
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -15,6 +14,7 @@ concurrency:
 
 jobs:
   measure:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'ci/published-bundle-baseline-20261127'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

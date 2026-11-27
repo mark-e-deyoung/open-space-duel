@@ -7,6 +7,12 @@ on:
       - .github/public-tests/verify-public-candidate.mjs
       - .github/public-tests/verify-public-candidate.selfcheck.mjs
       - .github/workflows/public-verifier-qualification.yml
+  pull_request:
+    branches: [release-control]
+    paths:
+      - .github/public-tests/verify-public-candidate.mjs
+      - .github/public-tests/verify-public-candidate.selfcheck.mjs
+      - .github/workflows/public-verifier-qualification.yml
   workflow_dispatch:
 
 permissions:

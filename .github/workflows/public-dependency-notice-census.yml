@@ -1,0 +1,79 @@
+name: Public dependency notice census
+on:
+  pull_request:
+    branches: [release-control]
+    paths: ['.github/workflows/public-dependency-notice-census.yml']
+permissions:
+  contents: read
+concurrency:
+  group: dependency-notice-census-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  census:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'ci/public-dependency-notice-census-20261127'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: d4031750ea52653d92ac7a2fb0f0b49efbf67e8c
+          path: candidate
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '22'
+      - name: Verify immutable public input and install locked runtime dependencies
+        working-directory: candidate
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = d4031750ea52653d92ac7a2fb0f0b49efbf67e8c
+          test "$(git hash-object package-lock.json)" = 104d96837373fda7c90b45b8d1cc55e1b22957c9
+          npm ci --ignore-scripts --omit=dev --no-audit --no-fund
+          test "$(git hash-object package-lock.json)" = 104d96837373fda7c90b45b8d1cc55e1b22957c9
+      - name: Inventory declared licenses and actual installed notice files
+        working-directory: candidate
+        run: |
+          node <<'NODE'
+          const fs=require('node:fs');
+          const path=require('node:path');
+          const crypto=require('node:crypto');
+          const assert=require('node:assert/strict');
+          const lock=JSON.parse(fs.readFileSync('package-lock.json','utf8'));
+          const root=fs.realpathSync(process.cwd());
+          const rows=[];
+          const locked=Object.entries(lock.packages).filter(([p])=>p);
+          for (const [p,entry] of locked) {
+            if (!p.startsWith('node_modules/') || p.split('/').some(x=>x==='..'||!x)) throw Error('unexpected lock path');
+            const dir=path.resolve(root,p);
+            if (!fs.existsSync(dir)) {
+              if (!entry.dev) rows.push({path:p,version:entry.version,declaredLicense:entry.license??null,status:'not-installed'});
+              continue;
+            }
+            if (fs.realpathSync(dir)!==dir || !fs.lstatSync(dir).isDirectory()) throw Error('non-regular package directory');
+            const metadata=JSON.parse(fs.readFileSync(path.join(dir,'package.json'),'utf8'));
+            assert.equal(metadata.version,entry.version,'installed package version mismatch');
+            const notices=[];
+            for(const name of fs.readdirSync(dir).sort()){
+              if(!/^(?:licen[cs]e|copying|notice|copyright|third[-_ ]party)(?:[._-]|$)/i.test(name))continue;
+              const file=path.join(dir,name),stat=fs.lstatSync(file);
+              if(!stat.isFile()||stat.isSymbolicLink()||stat.size>1024*1024){notices.push({name,status:'needs-review'});continue;}
+              const bytes=fs.readFileSync(file);
+              notices.push({name,bytes:bytes.length,sha256:crypto.createHash('sha256').update(bytes).digest('hex')});
+            }
+            rows.push({path:p,name:metadata.name,version:metadata.version,declaredLicense:entry.license??null,installedLicense:metadata.license??null,dev:!!entry.dev,status:'installed',notices});
+          }
+          const installed=rows.filter(x=>x.status==='installed');
+          const withoutNotice=installed.filter(x=>!x.notices.some(n=>n.sha256)).map(x=>x.path);
+          const differing=installed.filter(x=>JSON.stringify(x.declaredLicense)!==JSON.stringify(x.installedLicense)).map(x=>x.path);
+          const counts={};for(const x of installed){const k=JSON.stringify(x.installedLicense);counts[k]=(counts[k]??0)+1;}
+          const report={schemaVersion:1,scope:'previously published candidate; installed runtime dependency root-level notice file inventory, not bundle attribution or legal clearance',candidate:'d4031750ea52653d92ac7a2fb0f0b49efbf67e8c',lockBlob:'104d96837373fda7c90b45b8d1cc55e1b22957c9',lockedEntries:locked.length,installed:installed.length,notInstalled:rows.filter(x=>x.status==='not-installed').length,counts,withoutNotice,differing,rows};
+          fs.mkdirSync('../evidence',{recursive:true});
+          fs.writeFileSync('../evidence/dependency-notices.json',JSON.stringify(report,null,2)+'\n');
+          console.log(JSON.stringify({lockedEntries:report.lockedEntries,installed:report.installed,notInstalled:report.notInstalled,counts,missingNotice:withoutNotice.length,metadataMismatch:differing.length,scope:report.scope}));
+          NODE
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: public-runtime-dependency-notice-census
+          path: evidence/dependency-notices.json
+          retention-days: 7
+          if-no-files-found: error

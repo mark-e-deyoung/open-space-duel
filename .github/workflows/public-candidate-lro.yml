@@ -45,6 +45,7 @@ jobs:
       candidate_ref: ${{ steps.resolve.outputs.candidate_ref }}
       candidate_sha: ${{ steps.resolve.outputs.candidate_sha }}
       browser_iterations: ${{ steps.resolve.outputs.browser_iterations }}
+      promotion_manifest_sha: ${{ steps.resolve.outputs.promotion_manifest_sha }}
     steps:
       - name: Checkout trusted public control plane
         uses: actions/checkout@v6
@@ -60,6 +61,7 @@ jobs:
           INPUT_BROWSER_ITERATIONS: ${{ inputs.browser_iterations }}
         run: |
           set -euo pipefail
+          PROMOTION_MANIFEST_SHA=""
           if [ "$EVENT_NAME" = workflow_dispatch ]; then
             CANDIDATE_REF="$INPUT_CANDIDATE_REF"
             EXPECTED_SHA="$INPUT_CANDIDATE_SHA"
@@ -68,6 +70,9 @@ jobs:
             CANDIDATE_REF=$(node -e "const r=require('./.github/candidate-request.json'); process.stdout.write(r.candidateRef || '')")
             EXPECTED_SHA=$(node -e "const r=require('./.github/candidate-request.json'); process.stdout.write(r.candidateCommitSha || '')")
             ITERATIONS=$(node -e "const r=require('./.github/candidate-request.json'); process.stdout.write(String(r.browserIterations || 6))")
+            if [ "$EVENT_NAME" = push ]; then
+              PROMOTION_MANIFEST_SHA=$(node -e 'const r=require("./.github/candidate-request.json"); const p=r.promotion; if (p === undefined) process.exit(0); if (!p || Object.keys(p).length !== 3 || p.decision !== "approved" || p.candidateSha !== r.candidateCommitSha || !/^[a-f0-9]{64}$/.test(p.publicManifestSha256 || "")) process.exit(1); process.stdout.write(p.publicManifestSha256)')
+            fi
           fi
           # Restrict to a real single Git branch under candidate/; reject shell
           # metacharacters, wildcard refs and ref normalization ambiguities.
@@ -96,6 +101,7 @@ jobs:
           echo "candidate_ref=$CANDIDATE_REF" >> "$GITHUB_OUTPUT"
           echo "candidate_sha=$CANDIDATE_SHA" >> "$GITHUB_OUTPUT"
           echo "browser_iterations=$ITERATIONS" >> "$GITHUB_OUTPUT"
+          echo "promotion_manifest_sha=$PROMOTION_MANIFEST_SHA" >> "$GITHUB_OUTPUT"
           echo "Pinned $CANDIDATE_REF to $CANDIDATE_SHA with $ITERATIONS browser iterations"
 
   validate-build:
@@ -105,6 +111,7 @@ jobs:
     timeout-minutes: 90
     outputs:
       qualification_class: ${{ steps.package.outputs.qualification_class }}
+      public_manifest_sha: ${{ steps.package.outputs.public_manifest_sha }}
       public_candidate_sha: ${{ steps.package.outputs.public_candidate_sha }}
       bundle_sha256: ${{ steps.package.outputs.bundle_sha256 }}
     steps:
@@ -218,6 +225,7 @@ jobs:
           NODE
 
           echo "qualification_class=$QUALIFICATION_CLASS" >> "$GITHUB_OUTPUT"
+          echo "public_manifest_sha=$MANIFEST_SHA" >> "$GITHUB_OUTPUT"
           echo "public_candidate_sha=$CANDIDATE_SHA" >> "$GITHUB_OUTPUT"
           echo "bundle_sha256=$BUNDLE_SHA" >> "$GITHUB_OUTPUT"
           echo "Built exact artifact $BUNDLE_SHA ($QUALIFICATION_CLASS)"
@@ -447,7 +455,7 @@ jobs:
   deploy-ordinary:
     name: Deploy exact ordinary artifact
     needs: [resolve-request, validate-build, browser-matrix, local-gameplay, p2p-gameplay]
-    if: github.ref == 'refs/heads/release-control' && github.event_name != 'pull_request' && needs.validate-build.outputs.qualification_class == 'ordinary'
+    if: github.ref == 'refs/heads/release-control' && github.event_name == 'push' && needs.validate-build.outputs.qualification_class == 'ordinary' && needs.resolve-request.outputs.promotion_manifest_sha != '' && needs.resolve-request.outputs.promotion_manifest_sha == needs.validate-build.outputs.public_manifest_sha
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -466,7 +474,12 @@ jobs:
           name: osd-spa-build
           path: artifact
       - name: Verify exact tested build artifact
-        run: node harness/.github/public-tests/verify-public-build.mjs artifact ordinary
+        run: |
+          set -euo pipefail
+          node harness/.github/public-tests/verify-public-build.mjs artifact ordinary
+          test "$(sha256sum artifact/osd-spa.tar.gz | awk '{print $1}')" = "${{ needs.validate-build.outputs.bundle_sha256 }}"
+          test "$(node -p "require('./artifact/PUBLIC-BUILD-RECEIPT.json').publicCandidateSha")" = "${{ needs.resolve-request.outputs.candidate_sha }}"
+          test "$(node -p "require('./artifact/PUBLIC-BUILD-RECEIPT.json').publicManifestSha256")" = "${{ needs.resolve-request.outputs.promotion_manifest_sha }}"
       - name: Checkout deployment branch
         uses: actions/checkout@v6
         with:

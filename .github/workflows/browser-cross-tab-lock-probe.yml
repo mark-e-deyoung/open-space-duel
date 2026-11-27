@@ -1,0 +1,96 @@
+name: Browser cross-tab lock capability probe
+on:
+  pull_request:
+    branches: [release-control]
+    paths: [.github/workflows/browser-cross-tab-lock-probe.yml]
+permissions:
+  contents: read
+concurrency:
+  group: browser-lock-probe-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  platform:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Install disposable browser harness
+        run: |
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.59.1
+          npx playwright install --with-deps "${{ matrix.browser }}"
+      - name: Exercise native same-origin tab locking and cancellation
+        env:
+          BROWSER: ${{ matrix.browser }}
+        run: |
+          node <<'NODE'
+          const { chromium, firefox, webkit } = require('@playwright/test');
+          const http = require('node:http');
+          const assert = require('node:assert/strict');
+          const server = http.createServer((req,res) => {
+            res.setHeader('Content-Type','text/html');
+            res.setHeader('Cache-Control','no-store');
+            res.end('<!doctype html><title>Synthetic lock probe</title>');
+          });
+          let browser;
+          const deadline = setTimeout(() => { console.error('probe deadline exceeded'); process.exit(1); }, 90000);
+          (async () => {
+            await new Promise((r,j)=>server.once('error',j).listen(0,'127.0.0.1',r));
+            const url='http://127.0.0.1:'+server.address().port+'/';
+            browser=await ({chromium,firefox,webkit})[process.env.BROWSER].launch();
+            const context=await browser.newContext();
+            const a=await context.newPage(), b=await context.newPage();
+            await Promise.all([a.goto(url),b.goto(url)]);
+            await a.evaluate(() => {
+              if(!navigator.locks)throw Error('Web Locks unavailable');
+              window.acquired=false;
+              window.holder=navigator.locks.request('synthetic-stage',async()=>{
+                window.acquired=true;
+                await new Promise(resolve=>{window.releaseProbe=resolve;});
+              });
+            });
+            await a.waitForFunction(()=>window.acquired,{},{timeout:15000});
+            const unavailable=await b.evaluate(()=>navigator.locks.request('synthetic-stage',{ifAvailable:true},lock=>lock===null));
+            assert.equal(unavailable,true);
+            const abort=await b.evaluate(async()=>{
+              const controller=new AbortController();
+              let entered=false;
+              const pending=navigator.locks.request('synthetic-stage',{signal:controller.signal},()=>{entered=true;});
+              controller.abort();
+              let rejected=false;
+              try{await pending;}catch(e){rejected=e.name==='AbortError';}
+              return {rejected,entered};
+            });
+            assert.deepEqual(abort,{rejected:true,entered:false});
+            await b.evaluate(()=>{
+              window.waiterEntered=false;
+              window.waiter=navigator.locks.request('synthetic-stage',async()=>{
+                window.waiterEntered=true;
+                await new Promise(resolve=>{window.releaseProbe=resolve;});
+              });
+            });
+            await b.waitForFunction(async()=> (await navigator.locks.query()).pending.some(lock=>lock.name==='synthetic-stage'),{},{timeout:15000});
+            assert.equal(await b.evaluate(()=>window.waiterEntered),false);
+            await a.close();
+            await b.waitForFunction(()=>window.waiterEntered,{},{timeout:15000});
+            await b.evaluate(async()=>{window.releaseProbe();await window.waiter;});
+            const recovery=await b.evaluate(async()=>{
+              try{await navigator.locks.request('synthetic-stage',()=>{throw Error('synthetic failure');});}catch(e){}
+              return navigator.locks.request('synthetic-stage',{ifAvailable:true},lock=>!!lock);
+            });
+            assert.equal(recovery,true);
+            console.log(JSON.stringify({browser:process.env.BROWSER,exclusive:true,ifAvailableDenied:true,pendingAbortRejected:true,ownerCloseReleased:true,callbackFailureReleased:true}));
+            await context.close();
+          })().catch(e=>{console.error('lock probe failed:',e.name,e.message);process.exitCode=1;}).finally(async()=>{
+            clearTimeout(deadline);
+            if(browser)await browser.close();
+            if(server.listening){server.closeAllConnections();server.close();}
+          });
+          NODE

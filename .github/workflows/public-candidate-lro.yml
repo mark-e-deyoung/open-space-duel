@@ -280,7 +280,8 @@ jobs:
   deploy-ordinary:
     name: Deploy exact ordinary artifact
     needs: [resolve-request, validate-build, browser-matrix]
-    if: needs.validate-build.outputs.qualification_class == 'ordinary'
+    # Temporary promotion hold until the integrated gameplay and promotion-request gates qualify.
+    if: ${{ false }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:

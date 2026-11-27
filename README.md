@@ -1,51 +1,41 @@
-# 🚀 Open Space Duel - Gameplay Guide
+# Open Space Duel
 
-> **Repository role:** This is the sanitized public published-source/deployment/release plane for Open Space Duel, not the normal product-development authority. Public issues and user reports are welcome, but ordinary product fixes and features originate in the private development authority and arrive here through the governed public projection/release path. Direct public-only fixes require an explicit exception and reconciliation before the next projection.
+A browser-based space-combat game with solo, same-device duel and manual WebRTC duel modes. This is a release candidate, not a stable release. Online interoperability is still under qualification.
 
-Welcome to **Open Space Duel**, the pure browser-based P2P space combat arena. No accounts, no installs, just pure vector combat.
+## Build and test locally
 
-## 🕹️ How to Play
+Requirements: Node.js 22 or later, npm, a modern browser.
 
-### 1. Choose Your Ship
-*   **Interceptor:** High speed and rotation, low energy capacity. Best for hit-and-run tactics.
-*   **Standard:** Balanced performance. Reliable for all-around combat.
-*   **Dreadnought:** Slow but massive energy reserves and heavy shields. A flying fortress.
+```sh
+npm ci --ignore-scripts
+npm run lint
+npm run typecheck
+npx --no-install vitest run tests/steering-energy.test.ts
+npm run build
+npm run dev
+```
 
-### 2. Tune Your Pilot
-Use the **TUNING** slider to favor **MAX SPEED** (faster acceleration) or **MAX SHIELDS** (higher damage absorption).
+Open the URL printed by Vite. To preview the production build, run `npm run preview`. The built static site is in `dist/`; the project is configured for the GitHub Pages project path `/open-space-duel/`. No backend, account, token or AI tool is required to build or try the local game.
 
-### 3. Game Modes
-*   **Solo Mission:** Face continuous waves of asteroids and hostile NPCs (Saucers and Space Snakes). How long can you survive?
-*   **Local Duel:** Battle a friend on the same computer. Supports split-keyboard or multiple gamepads.
-*   **Online Duel Comms:** Open a public or private duel. Share a link or join via the public list to challenge another pilot across the globe via P2P WebRTC.
+## Local controls
 
-## ⌨️ Desktop Controls
+| Action | Pilot 1 | Pilot 2 |
+|---|---|---|
+| Thrust | W | Up |
+| Turn | A / D | Left / Right |
+| Primary fire | Space / F | Enter / M |
+| Secondary fire | X / R | K / comma |
+| Shield | Left Shift / Q | L / period |
+| Pause | Escape | — |
 
-| Action | Player 1 / Solo | Player 2 (Local) |
-| :--- | :--- | :--- |
-| **Thrust** | `W` or `Up` | `Up Arrow` |
-| **Rotate** | `A` / `D` or `Left` / `Right` | `Left` / `Right Arrow` |
-| **Primary Fire** | `Space` or `J` | `Enter` or `M` |
-| **Secondary Fire** | `X` or `L` | `K` or `,` |
-| **Shields** | `Shift` or `K` | `L` or `.` |
-| **Pause** | `Escape` | `Escape` |
+Choose arcade or inertial flight and a ship class before starting a duel. Thrust, steering, weapons and shields share an energy budget. The inertial model retains angular momentum until counter-thrust is applied. For an online duel, follow the private-link offer/reply instructions shown in the game. Network and browser restrictions can affect connectivity.
 
-## 🎮 Gamepad Controls
-*   **Steering:** Left Stick or D-Pad
-*   **Thrust:** D-Pad Up or Left Stick Up
-*   **Fire:** `A` (Xbox) / `Cross` (PS) or Right Trigger
-*   **Alt Fire:** `B` (Xbox) / `Circle` (PS) or `X` / `Square`
-*   **Shield:** Shoulder buttons (`LB`/`RB`) or Left Trigger
-*   **Pause:** `Start` button
+## Project resources
 
-## 📱 Mobile Controls
-*   **Touch:** Use the virtual thumbstick on the left to move and the buttons on the right to fire/shield.
-*   **Tilt:** Enable **TILT** in the joypad overlay to steer your ship by tilting your device.
+- [Play the currently published game](https://mark-e-deyoung.github.io/open-space-duel/)
+- [Report a bug](https://github.com/mark-e-deyoung/open-space-duel/issues)
+- [Public CI evidence](https://github.com/mark-e-deyoung/open-space-duel/actions)
 
-## 💡 Tactical Tips
-*   **Gravity Slingshot:** Use the gravity wells and planets to whip around the arena or curve your shots into enemies.
-*   **Booster Drops:** Watch for tactical drops! Some grant temporary invulnerability, while others unleash EMP blasts or provide extra lives.
-*   **Energy Management:** Firing and shielding consume energy. Keep an eye on your energy bar; if it depletes, you'll be vulnerable until it recharges.
+Include the version, browser, reproduction steps and expected/observed behavior in bug reports. Do not include credentials, private invite links or personal information.
 
----
-**Good luck, Pilot. The void is waiting.**
+The package declares ISC licensing; third-party dependencies retain their own licenses. See the dependency lockfile for the exact dependency versions.

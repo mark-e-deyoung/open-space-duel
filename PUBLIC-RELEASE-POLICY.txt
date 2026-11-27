@@ -1,0 +1,3 @@
+OPEN SPACE DUEL PUBLIC RELEASE POLICY
+Promote only a verified immutable public candidate and the exact built artifact.
+Require dependency security audit, lint, typecheck, build, steering regression, three-browser smoke, automated local two-player acceptance for both flight models and real two-browser P2P acceptance for both models. No release on failed or incomplete qualification. Preserve last known good Pages state and public source/build receipts. Physical human and assistive-technology evaluation are separate evidence; automated tests alone do not establish accessibility conformance.

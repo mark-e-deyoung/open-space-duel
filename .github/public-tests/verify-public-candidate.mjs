@@ -40,7 +40,15 @@ function walk(root, dir = root, out = []) {
 
 const candidateRoot = resolve(process.argv[2] || 'candidate');
 const manifestPath = join(candidateRoot, 'PUBLIC-PROJECTION-MANIFEST.json');
-const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+const manifestText = readFileSync(manifestPath, 'utf8');
+const manifest = JSON.parse(manifestText);
+// The manifest is itself public material, not exempt metadata. Require a
+// canonical serialization and a closed schema; duplicate/extra fields and
+// arbitrary internal provenance or review prose must not pass.
+if (manifestText !== `${JSON.stringify(manifest, null, 2)}\n`) fail('noncanonical public manifest');
+const manifestFields = new Set(['schemaVersion', 'publicRepository', 'qualificationClass', 'projectionPolicySha256', 'promotionPolicySha256', 'publicVersion', 'files']);
+if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest) || Object.keys(manifest).length !== manifestFields.size || Object.keys(manifest).some(key => !manifestFields.has(key))) fail('unexpected public manifest field');
+if (typeof manifest.publicVersion !== 'string' || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(manifest.publicVersion)) fail('invalid public version');
 
 if (manifest.schemaVersion !== 2) fail(`unsupported manifest schemaVersion ${manifest.schemaVersion}`);
 if (manifest.publicRepository !== 'mark-e-deyoung/open-space-duel') {
@@ -60,7 +68,8 @@ if (!Array.isArray(manifest.files) || manifest.files.length === 0) fail('manifes
 const declared = new Map();
 for (const item of manifest.files) {
   if (
-    !item ||
+    !item || typeof item !== 'object' || Array.isArray(item) ||
+    Object.keys(item).length !== 3 || Object.keys(item).some(key => !['path', 'gitBlobSha1', 'bytes'].includes(key)) ||
     typeof item.path !== 'string' ||
     typeof item.gitBlobSha1 !== 'string' ||
     !/^[a-f0-9]{40}$/.test(item.gitBlobSha1) ||
@@ -99,6 +108,15 @@ const highConfidenceSecrets = [
   /\bAKIA[0-9A-Z]{16}\b/,
 ];
 
+// The file census deliberately excludes the self-referential manifest; scan
+// it separately so metadata cannot bypass the content boundary.
+for (const needle of forbiddenText) {
+  if (manifestText.includes(needle)) fail('forbidden private/restricted reference in manifest');
+}
+for (const pattern of highConfidenceSecrets) {
+  if (pattern.test(manifestText)) fail('high-confidence secret pattern in manifest');
+}
+
 for (const [path, item] of declared) {
   const data = readFileSync(join(candidateRoot, path));
   if (gitBlobSha1(data) !== item.gitBlobSha1) fail(`Git blob identity mismatch for ${path}`);
@@ -124,6 +142,7 @@ for (const [path, item] of declared) {
 }
 
 const pkg = JSON.parse(readFileSync(join(candidateRoot, 'package.json'), 'utf8'));
+if (pkg.version !== manifest.publicVersion) fail('package version does not match public manifest');
 if (pkg.repository?.url !== 'git+https://github.com/mark-e-deyoung/open-space-duel.git') {
   fail('package repository metadata is not publicized');
 }

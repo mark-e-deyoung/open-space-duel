@@ -1,5 +1,6 @@
 // Public black-box gameplay: no internal state hooks or private fixtures.
 const { test, expect } = require('@playwright/test');
+const { focusGameplay } = require('./gameplay-focus.cjs');
 
 test('paid steering and forward thrust are perceptible in live gameplay', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 900, height: 700 });
@@ -18,6 +19,8 @@ test('paid steering and forward thrust are perceptible in live gameplay', async 
   await survival.click();
   await expect(page.getByTestId('main-menu')).toBeHidden();
   await expect(page.locator('#game-canvas')).toBeVisible();
+
+  await focusGameplay(page);
 
   // Hold steering, then add thrust: both should be expressed independently.
   await page.keyboard.down('ArrowLeft');

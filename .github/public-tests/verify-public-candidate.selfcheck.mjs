@@ -19,7 +19,7 @@ function fixture(label, source = 'export const ordinary = true;', scripts = {}) 
   mkdirSync(join(dir, 'src'), { recursive: true });
   const files = [
     ['package.json', JSON.stringify({
-      name: 'osd-public-fixture', license: 'ISC', scripts,
+      name: 'osd-public-fixture', version: '0.0.0', license: 'ISC', scripts,
       repository: { url: 'git+https://github.com/mark-e-deyoung/open-space-duel.git' }
     })],
     ['src/main.ts', source],
@@ -31,13 +31,14 @@ function fixture(label, source = 'export const ordinary = true;', scripts = {}) 
     qualificationClass: 'private-required',
     projectionPolicySha256: manifestDigest,
     promotionPolicySha256: manifestDigest,
+    publicVersion: '0.0.0',
     files: files.map(([path, content]) => {
       const value = Buffer.from(content);
       return { path, bytes: value.length, gitBlobSha1: digest(value) };
     })
   };
   writeFileSync(join(dir, 'PUBLIC-PROJECTION-MANIFEST.json'),
-    JSON.stringify(manifest));
+    JSON.stringify(manifest, null, 2) + '\n');
   return dir;
 }
 function check(dir) {
@@ -207,4 +208,53 @@ test('symlinked root Git metadata cannot bypass candidate census', () => {
   const result = check(dir);
   assert.equal(result.status, 1, result.log);
   assert.match(result.log, /unapproved \.git entry/);
+});
+
+function amendManifest(label, mutate) {
+  const dir = fixture(label);
+  const path = join(dir, 'PUBLIC-PROJECTION-MANIFEST.json');
+  const manifest = JSON.parse(readFileSync(path, 'utf8'));
+  mutate(manifest);
+  writeFileSync(path, JSON.stringify(manifest, null, 2) + '\n');
+  return dir;
+}
+
+test('extra manifest metadata is denied rather than published', () => {
+  const result = check(amendManifest('extra-metadata', manifest => {
+    manifest.internalNotes = 'synthetic internal notes';
+  }));
+  assert.equal(result.status, 1, result.log);
+  assert.match(result.log, /unexpected public manifest field/);
+});
+
+test('extra per-file metadata is denied', () => {
+  const result = check(amendManifest('extra-file-metadata', manifest => {
+    manifest.files[0].comment = 'synthetic internal notes';
+  }));
+  assert.equal(result.status, 1, result.log);
+  assert.match(result.log, /malformed manifest file entry/);
+});
+
+test('duplicate manifest fields are denied even when JSON parsing would discard one', () => {
+  const dir = fixture('duplicate-field');
+  const path = join(dir, 'PUBLIC-PROJECTION-MANIFEST.json');
+  const manifest = readFileSync(path, 'utf8');
+  writeFileSync(path, manifest.replace('"schemaVersion": 2,', '"schemaVersion": "synthetic",\n  "schemaVersion": 2,'));
+  const result = check(dir);
+  assert.equal(result.status, 1, result.log);
+  assert.match(result.log, /noncanonical public manifest/);
+});
+
+test('mismatched public version is denied', () => {
+  const result = check(amendManifest('wrong-version', manifest => { manifest.publicVersion = '9.9.9'; }));
+  assert.equal(result.status, 1, result.log);
+  assert.match(result.log, /package version does not match public manifest/);
+});
+
+test('a synthetic token pattern in the public manifest is denied', () => {
+  const result = check(amendManifest('manifest-token', manifest => {
+    manifest.publicVersion = '0.0.0-ghp_' + 'Q'.repeat(20);
+  }));
+  assert.equal(result.status, 1, result.log);
+  assert.match(result.log, /invalid public version|high-confidence secret pattern/);
 });

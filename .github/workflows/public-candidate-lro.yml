@@ -435,16 +435,10 @@ jobs:
           npx playwright test
           .github/public-tests/automated-two-browser-p2p.spec.cjs
           --config=.github/public-tests/playwright.config.cjs
-          --project=chromium --workers=1 --retries=0
+          --project=chromium --workers=1 --retries=0 --trace=off
           --grep "host:${{ matrix.host }} "
-      - name: Retain gameplay evidence and first failures
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: p2p-${{ matrix.host }}-gameplay
-          path: harness/test-results/
-          if-no-files-found: ignore
-          retention-days: 7
+      # P2P publishes only bounded stage/state verdicts to the job log.
+      # Never upload offer/answer screenshots, traces, or browser videos.
       - name: Stop preview
         if: always()
         run: |
@@ -455,7 +449,9 @@ jobs:
   deploy-ordinary:
     name: Deploy exact ordinary artifact
     needs: [resolve-request, validate-build, browser-matrix, local-gameplay, p2p-gameplay]
-    if: github.ref == 'refs/heads/release-control' && github.event_name == 'push' && needs.validate-build.outputs.qualification_class == 'ordinary' && needs.resolve-request.outputs.promotion_manifest_sha != '' && needs.resolve-request.outputs.promotion_manifest_sha == needs.validate-build.outputs.public_manifest_sha
+    # Containment hold: qualify the joined gameplay/promotion control before enabling.
+    # Intended authorization: trusted release-control push + ordinary class + matching approved manifest.
+    if: ${{ false }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:

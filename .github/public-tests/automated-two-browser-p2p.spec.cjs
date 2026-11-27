@@ -1,5 +1,8 @@
 // Public user-path browser P2P acceptance. No private game hooks or mock signaling.
 const { test, expect, chromium, firefox } = require('@playwright/test');
+const { focusGameplay } = require('./gameplay-focus.cjs');
+// Offer/answer links and RTC credentials must not enter public traces or videos.
+test.use({ trace: 'off', screenshot: 'off', video: 'off' });
 const types = { chromium, firefox };
 const combinations = [
   ['chromium', 'chromium'], ['chromium', 'firefox'],
@@ -38,15 +41,14 @@ for (const mode of ['arcade', 'inertial']) {
         const hostBrowser = await types[hostEngine].launch({ timeout: 20_000 });
         const guestBrowser = await types[guestEngine].launch({ timeout: 20_000 });
         let hostCtx, guestCtx;
-        const errors = { host: [], guest: [] };
+        const errors = { host: 0, guest: 0 };
+        let currentStage = 'initialize browsers';
         try {
           hostCtx = await hostBrowser.newContext({
             viewport: { width: 1120, height: 780 },
-            recordVideo: { dir: info.outputPath('videos-host') },
           });
           guestCtx = await guestBrowser.newContext({
             viewport: { width: 1120, height: 780 },
-            recordVideo: { dir: info.outputPath('videos-guest') },
           });
           await initialize(hostCtx);
           await initialize(guestCtx);
@@ -56,10 +58,10 @@ for (const mode of ['arcade', 'inertial']) {
             page.setDefaultTimeout(15_000);
             page.setDefaultNavigationTimeout(20_000);
           }
-          const stage = label => console.log(JSON.stringify({ scenario: 'browser-p2p', mode, hostEngine, guestEngine, stage: label }));
+          const stage = label => { currentStage = label; console.log(JSON.stringify({ scenario: 'browser-p2p', mode, hostEngine, guestEngine, stage: label })); };
           stage('host navigation');
-          host.on('pageerror', error => errors.host.push(error.message));
-          guest.on('pageerror', error => errors.guest.push(error.message));
+          host.on('pageerror', () => errors.host++);
+          guest.on('pageerror', () => errors.guest++);
 
           await host.goto(base, { waitUntil: 'domcontentloaded' });
           await expect(host.getByTestId('main-menu')).toBeVisible();
@@ -101,24 +103,29 @@ for (const mode of ['arcade', 'inertial']) {
             await expect(page.locator('#game-canvas')).toBeVisible();
             await expect(page.getByTestId('hud')).toBeVisible();
             await expect(page.getByTestId('p1-stats')).toHaveCount(2);
-            await page.locator('#game-canvas').click({ position: { x: 300, y: 200 } });
+            await focusGameplay(page);
           }
 
           stage('independent real inputs');
           // Both human roles inject actual keyboard events, not state mutation.
+          stage('host steering');
+          await focusGameplay(host);
           await host.keyboard.down('ArrowLeft');
           await expect(host.getByTestId('propulsion-state')).toContainText('TURN LEFT');
           await host.keyboard.up('ArrowLeft');
+          stage('guest steering');
+          await focusGameplay(guest);
           await guest.keyboard.down('ArrowRight');
           await expect(guest.getByTestId('propulsion-state')).toContainText('TURN RIGHT');
           await guest.keyboard.up('ArrowRight');
-          await host.keyboard.down('ArrowUp');
-          await guest.keyboard.down('ArrowUp');
-          await host.waitForTimeout(400);
-          await host.keyboard.up('ArrowUp');
-          await guest.keyboard.up('ArrowUp');
-          await host.keyboard.press('Space');
-          await guest.keyboard.press('Space');
+          for (const [role, page] of [['host', host], ['guest', guest]]) {
+            stage(role + ' thrust and fire');
+            await focusGameplay(page);
+            await page.keyboard.down('ArrowUp');
+            try { await expect(page.getByTestId('propulsion-state')).toContainText('FORWARD THRUST'); }
+            finally { await page.keyboard.up('ArrowUp'); }
+            await page.keyboard.press('Space');
+          }
 
           await expect(host.getByTestId('hud')).toBeVisible();
           await expect(guest.getByTestId('hud')).toBeVisible();
@@ -127,19 +134,19 @@ for (const mode of ['arcade', 'inertial']) {
           const after = [await observedConnections(host), await observedConnections(guest)];
           expect(after.every(side => side.some(x => x.connection === 'connected')))
             .toBe(true);
-          await host.screenshot({ path: info.outputPath('real-host-' + mode + '.png') });
-          await guest.screenshot({ path: info.outputPath('real-guest-' + mode + '.png') });
+          stage('connected gameplay complete');
           console.log(JSON.stringify({
             scenario: 'two-real-browser-P2P', mode,
             hostEngine, guestEngine,
             connectionsBefore: before, connectionsAfter: after,
             exceptions: errors,
           }));
-          expect(errors.host).toEqual([]);
-          expect(errors.guest).toEqual([]);
+          expect(errors.host).toBe(0);
+          expect(errors.guest).toBe(0);
         } catch (error) {
-          console.error(JSON.stringify({ scenario: 'browser-p2p', mode, hostEngine, guestEngine, failure: String(error).slice(0, 500) }));
-          throw error;
+          const failureClass = error?.name === 'TimeoutError' ? 'TimeoutError' : 'AssertionOrRuntimeFailure';
+          console.error(JSON.stringify({ scenario: 'browser-p2p', mode, hostEngine, guestEngine, stage: currentStage, failureClass }));
+          throw new Error('P2P acceptance failed at ' + currentStage + ' (' + failureClass + ')');
         } finally {
           await hostCtx?.close();
           await guestCtx?.close();

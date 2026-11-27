@@ -1,5 +1,6 @@
 // Public user-observable two-human local gameplay. No private test hooks or bypass.
 const { test, expect } = require('@playwright/test');
+const { focusGameplay } = require('./gameplay-focus.cjs');
 
 const models = ['arcade', 'inertial'];
 const shipClasses = ['standard', 'interceptor', 'dreadnought'];
@@ -27,7 +28,7 @@ async function newGame(page, model, p1, p2) {
   await expect(page.getByTestId('hud')).toBeVisible();
   await expect(page.getByTestId('p1-stats')).toHaveCount(2);
   await expect(page.getByTestId('hud')).toContainText('PILOT 2');
-  await page.locator('#game-canvas').click({ position: { x: 300, y: 200 } });
+  await focusGameplay(page);
   return errors;
 }
 

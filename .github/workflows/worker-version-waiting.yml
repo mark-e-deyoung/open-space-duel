@@ -84,7 +84,38 @@ jobs:
               await b.waitForFunction(()=>!!navigator.serviceWorker.controller,{},{timeout:15000,polling:100});
               const read=p=>p.evaluate(()=>fetch('/probe/selected.txt').then(r=>{if(!r.ok)throw Error('asset unavailable');return r.text();}));
               const shell=p=>p.evaluate(()=>document.documentElement.dataset.release);
-              const waiting=p=>p.evaluate(async()=>!!(await navigator.serviceWorker.getRegistration('/probe/'))?.waiting);
+              // Registration views can change asynchronously. Require version-tagged
+              // evidence for the controller, active and waiting workers in the
+              // SAME observation, rather than sequential truthy handle checks.
+              const observe=p=>p.evaluate(async()=>{
+                const r=await navigator.serviceWorker.getRegistration('/probe/');
+                const versionOf=w=>!w?Promise.resolve(null):new Promise(resolve=>{
+                  const ch=new MessageChannel();
+                  const done=v=>{clearTimeout(timer);ch.port1.close();resolve(v);};
+                  const timer=setTimeout(()=>done(null),600);
+                  ch.port1.onmessage=e=>done(e.data==='v1'||e.data==='v2'?e.data:null);
+                  try{w.postMessage('version',[ch.port2]);}catch{done(null);}
+                });
+                const c=navigator.serviceWorker.controller, active=r?.active, waiting=r?.waiting;
+                const states={controller:c?.state??null,active:active?.state??null,waiting:waiting?.state??null,installing:r?.installing?.state??null};
+                const [cv,av,wv]=await Promise.all([versionOf(c),versionOf(active),versionOf(waiting)]);
+                return {states,cv,av,wv,changes:window.fixtureControllerChanges??0,
+                  stable:c===navigator.serviceWorker.controller&&active===r?.active&&waiting===r?.waiting};
+              });
+              const oldAndWaiting=o=>o.stable&&o.cv==='v1'&&o.av==='v1'&&o.wv==='v2'&&o.states.waiting==='installed'&&o.changes===0;
+              const waitStable=async(pages,label)=>{
+                let consecutive=0,last=[];
+                const until=Date.now()+20000;
+                while(Date.now()<until){
+                  last=await Promise.all(pages.map(observe));
+                  if(last.every(oldAndWaiting)){
+                    if(++consecutive===3){console.log(JSON.stringify({observation:label,samples:consecutive,views:last}));return true;}
+                  }else{consecutive=0;}
+                  await new Promise(r=>setTimeout(r,150));
+                }
+                console.error(JSON.stringify({observation:label,views:last}));
+                return false;
+              };
               check('two clients controlled by v1',await read(a)==='v1'&&await read(b)==='v1');
               check('both clients loaded v1 cached shell',await shell(a)==='v1'&&await shell(b)==='v1');
               // Record unexpected controller changes before requesting update.
@@ -95,14 +126,13 @@ jobs:
               stage='install second worker and observe both registration views';
               version='v2';
               await sentinel.evaluate(async()=>{await (await navigator.serviceWorker.getRegistration('/probe/')).update();});
-              for(const page of [a,b]) await page.waitForFunction(async()=>(await navigator.serviceWorker.getRegistration('/probe/'))?.waiting?.state==='installed',{},{timeout:20000,polling:100});
-              check('v2 waiting while two old clients exist',await waiting(a)&&await waiting(b));
+              check('v2 waiting while two old clients exist',await waitStable([a,b],'both-old-clients'));
               check('no unexpected controller change during installation',(await a.evaluate(()=>window.fixtureControllerChanges))===0&&(await b.evaluate(()=>window.fixtureControllerChanges))===0);
               check('both old clients still see only v1',await read(a)==='v1'&&await read(b)==='v1'&&await shell(a)==='v1'&&await shell(b)==='v1');
               check('both caches independently populated',await a.evaluate(async()=>{const names=await caches.keys();return names.includes('fixture-release-v1')&&names.includes('fixture-release-v2');}));
               stage='close first old client';
               await a.close();
-              check('remaining old client keeps v2 waiting',await waiting(b)&&await read(b)==='v1'&&(await b.evaluate(()=>window.fixtureControllerChanges))===0);
+              check('remaining old client keeps v2 waiting',await waitStable([b],'one-old-client')&&await read(b)==='v1'&&(await b.evaluate(()=>window.fixtureControllerChanges))===0);
               check('out of scope observer uncontrolled',await sentinel.evaluate(()=>navigator.serviceWorker.controller===null));
               stage='close final old client and observe natural activation';
               await b.close();

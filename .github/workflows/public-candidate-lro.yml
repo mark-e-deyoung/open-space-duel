@@ -7,6 +7,10 @@ on:
         description: Sanitized public candidate ref (for example candidate/ab12cd34)
         required: true
         type: string
+      candidate_sha:
+        description: Expected full public candidate commit SHA
+        required: true
+        type: string
       browser_iterations:
         description: Repeated exact-artifact navigations per browser (1-50)
         required: true
@@ -16,12 +20,17 @@ on:
     branches: [release-control]
     paths:
       - .github/candidate-request.json
+  pull_request:
+    branches: [release-control]
+    paths:
+      - .github/workflows/public-candidate-lro.yml
+      - .github/public-tests/**
 
 permissions:
   contents: read
 
 concurrency:
-  group: public-candidate-lro
+  group: public-candidate-lro-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'release' }}
   cancel-in-progress: false
 
 jobs:
@@ -29,13 +38,14 @@ jobs:
     name: Resolve immutable candidate request
     # Manual dispatch MUST target the trusted release-control branch;
     # no candidate/scratch branch may exercise the publishing control plane.
-    if: github.ref == 'refs/heads/release-control'
+    if: github.ref == 'refs/heads/release-control' || (github.event_name == 'pull_request' && github.base_ref == 'release-control' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       candidate_ref: ${{ steps.resolve.outputs.candidate_ref }}
       candidate_sha: ${{ steps.resolve.outputs.candidate_sha }}
       browser_iterations: ${{ steps.resolve.outputs.browser_iterations }}
+      promotion_manifest_sha: ${{ steps.resolve.outputs.promotion_manifest_sha }}
     steps:
       - name: Checkout trusted public control plane
         uses: actions/checkout@v6
@@ -47,15 +57,22 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           INPUT_CANDIDATE_REF: ${{ inputs.candidate_ref }}
+          INPUT_CANDIDATE_SHA: ${{ inputs.candidate_sha }}
           INPUT_BROWSER_ITERATIONS: ${{ inputs.browser_iterations }}
         run: |
           set -euo pipefail
+          PROMOTION_MANIFEST_SHA=""
           if [ "$EVENT_NAME" = workflow_dispatch ]; then
             CANDIDATE_REF="$INPUT_CANDIDATE_REF"
+            EXPECTED_SHA="$INPUT_CANDIDATE_SHA"
             ITERATIONS="${INPUT_BROWSER_ITERATIONS:-6}"
           else
             CANDIDATE_REF=$(node -e "const r=require('./.github/candidate-request.json'); process.stdout.write(r.candidateRef || '')")
+            EXPECTED_SHA=$(node -e "const r=require('./.github/candidate-request.json'); process.stdout.write(r.candidateCommitSha || '')")
             ITERATIONS=$(node -e "const r=require('./.github/candidate-request.json'); process.stdout.write(String(r.browserIterations || 6))")
+            if [ "$EVENT_NAME" = push ]; then
+              PROMOTION_MANIFEST_SHA=$(node -e 'const r=require("./.github/candidate-request.json"); const p=r.promotion; if (p === undefined) process.exit(0); if (!p || Object.keys(p).length !== 3 || p.decision !== "approved" || p.candidateSha !== r.candidateCommitSha || !/^[a-f0-9]{64}$/.test(p.publicManifestSha256 || "")) process.exit(1); process.stdout.write(p.publicManifestSha256)')
+            fi
           fi
           # Restrict to a real single Git branch under candidate/; reject shell
           # metacharacters, wildcard refs and ref normalization ambiguities.
@@ -77,9 +94,14 @@ jobs:
             echo 'Expected one exact SHA-1 commit for requested public candidate branch' >&2
             exit 1
           fi
+          if [[ ! "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || [ "$CANDIDATE_SHA" != "$EXPECTED_SHA" ]; then
+            echo "Candidate branch head differs from the immutable requested SHA" >&2
+            exit 1
+          fi
           echo "candidate_ref=$CANDIDATE_REF" >> "$GITHUB_OUTPUT"
           echo "candidate_sha=$CANDIDATE_SHA" >> "$GITHUB_OUTPUT"
           echo "browser_iterations=$ITERATIONS" >> "$GITHUB_OUTPUT"
+          echo "promotion_manifest_sha=$PROMOTION_MANIFEST_SHA" >> "$GITHUB_OUTPUT"
           echo "Pinned $CANDIDATE_REF to $CANDIDATE_SHA with $ITERATIONS browser iterations"
 
   validate-build:
@@ -89,6 +111,7 @@ jobs:
     timeout-minutes: 90
     outputs:
       qualification_class: ${{ steps.package.outputs.qualification_class }}
+      public_manifest_sha: ${{ steps.package.outputs.public_manifest_sha }}
       public_candidate_sha: ${{ steps.package.outputs.public_candidate_sha }}
       bundle_sha256: ${{ steps.package.outputs.bundle_sha256 }}
     steps:
@@ -202,6 +225,7 @@ jobs:
           NODE
 
           echo "qualification_class=$QUALIFICATION_CLASS" >> "$GITHUB_OUTPUT"
+          echo "public_manifest_sha=$MANIFEST_SHA" >> "$GITHUB_OUTPUT"
           echo "public_candidate_sha=$CANDIDATE_SHA" >> "$GITHUB_OUTPUT"
           echo "bundle_sha256=$BUNDLE_SHA" >> "$GITHUB_OUTPUT"
           echo "Built exact artifact $BUNDLE_SHA ($QUALIFICATION_CLASS)"
@@ -269,7 +293,10 @@ jobs:
         run: >-
           npx playwright test
           --config=.github/public-tests/playwright.config.cjs
-          --project="${{ matrix.browser }}"
+          --project="${{ matrix.browser }}" --retries=0
+          .github/public-tests/deployed-soak.spec.cjs
+          .github/public-tests/public-rdte-viewport.spec.cjs
+          .github/public-tests/rcs-gameplay.spec.cjs
       - name: Stop preview
         if: always()
         run: |
@@ -277,10 +304,153 @@ jobs:
             kill "$(cat /tmp/osd-public-preview.pid)" 2>/dev/null || true
           fi
 
+  local-gameplay:
+    name: ${{ matrix.browser }} local dual-flight gameplay
+    needs: [resolve-request, validate-build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    steps:
+      - name: Checkout public harness
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          path: harness
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Download exact qualified build artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: osd-spa-build
+          path: artifact
+      - name: Verify exact candidate and artifact hash
+        run: |
+          set -euo pipefail
+          node harness/.github/public-tests/verify-public-build.mjs artifact "${{ needs.validate-build.outputs.qualification_class }}"
+          test "$(sha256sum artifact/osd-spa.tar.gz | awk '{print $1}')" = "${{ needs.validate-build.outputs.bundle_sha256 }}"
+          test "$(node -p "require('./artifact/PUBLIC-BUILD-RECEIPT.json').publicCandidateSha")" = "${{ needs.resolve-request.outputs.candidate_sha }}"
+      - name: Serve exact static artifact
+        run: |
+          set -euo pipefail
+          mkdir -p preview/open-space-duel
+          tar -xzf artifact/osd-spa.tar.gz -C preview/open-space-duel
+          python3 -m http.server 4173 --bind 127.0.0.1 --directory preview > /tmp/osd-gameplay-preview.log 2>&1 &
+          echo $! >/tmp/osd-gameplay-preview.pid
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4173/open-space-duel/ >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/osd-gameplay-preview.log
+          exit 1
+      - name: Install public browser harness
+        working-directory: harness
+        run: |
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.59.1
+          npx playwright install --with-deps "${{ matrix.browser }}"
+      - name: Exercise both player roles and all local ship pairs
+        working-directory: harness
+        env:
+          DEPLOYED_BASE_URL: http://127.0.0.1:4173/open-space-duel/
+        run: >-
+          npx playwright test
+          .github/public-tests/automated-two-human-local.spec.cjs
+          --config=.github/public-tests/playwright.config.cjs
+          --project="${{ matrix.browser }}" --workers=1 --retries=0
+          
+      - name: Retain gameplay evidence and first failures
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: local-${{ matrix.browser }}-gameplay
+          path: harness/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Stop preview
+        if: always()
+        run: |
+          if test -f /tmp/osd-gameplay-preview.pid; then
+            kill "$(cat /tmp/osd-gameplay-preview.pid)" 2>/dev/null || true
+          fi
+
+  p2p-gameplay:
+    name: ${{ matrix.host }} host dual-flight real browser P2P
+    needs: [resolve-request, validate-build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        host: [chromium, firefox]
+    steps:
+      - name: Checkout public harness
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          path: harness
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Download exact qualified build artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: osd-spa-build
+          path: artifact
+      - name: Verify exact candidate and artifact hash
+        run: |
+          set -euo pipefail
+          node harness/.github/public-tests/verify-public-build.mjs artifact "${{ needs.validate-build.outputs.qualification_class }}"
+          test "$(sha256sum artifact/osd-spa.tar.gz | awk '{print $1}')" = "${{ needs.validate-build.outputs.bundle_sha256 }}"
+          test "$(node -p "require('./artifact/PUBLIC-BUILD-RECEIPT.json').publicCandidateSha")" = "${{ needs.resolve-request.outputs.candidate_sha }}"
+      - name: Serve exact static artifact
+        run: |
+          set -euo pipefail
+          mkdir -p preview/open-space-duel
+          tar -xzf artifact/osd-spa.tar.gz -C preview/open-space-duel
+          python3 -m http.server 4173 --bind 127.0.0.1 --directory preview > /tmp/osd-gameplay-preview.log 2>&1 &
+          echo $! >/tmp/osd-gameplay-preview.pid
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4173/open-space-duel/ >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/osd-gameplay-preview.log
+          exit 1
+      - name: Install public browser harness
+        working-directory: harness
+        run: |
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.59.1
+          npx playwright install --with-deps chromium firefox
+      - name: Exercise real host/guest connections and both flight modes
+        working-directory: harness
+        env:
+          DEPLOYED_BASE_URL: http://127.0.0.1:4173/open-space-duel/
+        run: >-
+          npx playwright test
+          .github/public-tests/automated-two-browser-p2p.spec.cjs
+          --config=.github/public-tests/playwright.config.cjs
+          --project=chromium --workers=1 --retries=0 --trace=off
+          --grep "host:${{ matrix.host }} "
+      # P2P publishes only bounded stage/state verdicts to the job log.
+      # Never upload offer/answer screenshots, traces, or browser videos.
+      - name: Stop preview
+        if: always()
+        run: |
+          if test -f /tmp/osd-gameplay-preview.pid; then
+            kill "$(cat /tmp/osd-gameplay-preview.pid)" 2>/dev/null || true
+          fi
+
   deploy-ordinary:
     name: Deploy exact ordinary artifact
-    needs: [resolve-request, validate-build, browser-matrix]
-    # Temporary promotion hold until the integrated gameplay and promotion-request gates qualify.
+    needs: [resolve-request, validate-build, browser-matrix, local-gameplay, p2p-gameplay]
+    # Containment hold: qualify the joined gameplay/promotion control before enabling.
+    # Intended authorization: trusted release-control push + ordinary class + matching approved manifest.
     if: ${{ false }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -300,7 +470,12 @@ jobs:
           name: osd-spa-build
           path: artifact
       - name: Verify exact tested build artifact
-        run: node harness/.github/public-tests/verify-public-build.mjs artifact ordinary
+        run: |
+          set -euo pipefail
+          node harness/.github/public-tests/verify-public-build.mjs artifact ordinary
+          test "$(sha256sum artifact/osd-spa.tar.gz | awk '{print $1}')" = "${{ needs.validate-build.outputs.bundle_sha256 }}"
+          test "$(node -p "require('./artifact/PUBLIC-BUILD-RECEIPT.json').publicCandidateSha")" = "${{ needs.resolve-request.outputs.candidate_sha }}"
+          test "$(node -p "require('./artifact/PUBLIC-BUILD-RECEIPT.json').publicManifestSha256")" = "${{ needs.resolve-request.outputs.promotion_manifest_sha }}"
       - name: Checkout deployment branch
         uses: actions/checkout@v6
         with:
@@ -344,7 +519,7 @@ jobs:
 
   private-qualification-required:
     name: Private qualification required
-    needs: [resolve-request, validate-build, browser-matrix]
+    needs: [resolve-request, validate-build, browser-matrix, local-gameplay, p2p-gameplay]
     if: needs.validate-build.outputs.qualification_class == 'private-required'
     runs-on: ubuntu-24.04
     steps:

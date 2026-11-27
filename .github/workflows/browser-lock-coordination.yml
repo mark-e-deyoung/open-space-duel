@@ -1,0 +1,92 @@
+name: Browser lock coordination probe
+on:
+  pull_request:
+    branches: [release-control]
+    paths: ['.github/workflows/browser-lock-coordination.yml']
+permissions:
+  contents: read
+concurrency:
+  group: browser-lock-coordination-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  probe:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'ci/browser-lock-coordination-20261127'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Install isolated browser test harness
+        run: |
+          npm init -y >/dev/null
+          npm install --no-save --ignore-scripts @playwright/test@1.59.1
+          npx playwright install --with-deps "${{ matrix.browser }}"
+      - name: Exercise real multi-tab locks using synthetic data
+        env:
+          BROWSER: ${{ matrix.browser }}
+        run: |
+          node <<'NODE'
+          const { chromium, firefox, webkit } = require('@playwright/test');
+          const assert = require('node:assert/strict');
+          const http = require('node:http');
+          const server = http.createServer((req,res) => {
+            res.setHeader('Content-Type','text/html');
+            res.setHeader('Cache-Control','no-store');
+            res.end('<!doctype html><title>Disposable lock fixture</title>');
+          });
+          const engines = {chromium,firefox,webkit};
+          (async () => {
+            await new Promise(resolve => server.listen(0,'127.0.0.1',resolve));
+            let browser, context;
+            const results = [];
+            const name = 'fixture-game-lifecycle';
+            const stage = 'fixture-game-stage';
+            const other = 'fixture-other-app-lifecycle';
+            try {
+              browser = await engines[process.env.BROWSER].launch({timeout:30000});
+              context = await browser.newContext();
+              const url = 'http://127.0.0.1:' + server.address().port + '/probe/';
+              const pages = await Promise.all([context.newPage(),context.newPage(),context.newPage()]);
+              await Promise.all(pages.map(p=>p.goto(url,{timeout:15000})));
+              const [a,b,c] = pages;
+              const tryLock = (p,n,mode) => p.evaluate(({n,mode}) =>
+                navigator.locks.request(n,{mode,ifAvailable:true},lock=>Boolean(lock)),{n,mode});
+              const hold = (p,n,mode) => p.evaluate(({n,mode})=>new Promise((resolve,reject)=>{
+                window.fixtureReleases ||= {};
+                navigator.locks.request(n,{mode,ifAvailable:true},lock=>{
+                  if(!lock){resolve(false);return;}
+                  return new Promise(done=>{window.fixtureReleases[n]=done;resolve(true);});
+                }).catch(reject);
+              }),{n,mode});
+              const release = (p,n) => p.evaluate(n=>{window.fixtureReleases[n]?.();delete window.fixtureReleases[n];},n);
+              const check = (label,pass) => {assert.equal(pass,true,label);results.push(label);};
+              const eventually = async(p,n,mode) => {
+                for(let i=0;i<50;i++){if(await tryLock(p,n,mode))return true;await new Promise(r=>setTimeout(r,100));}
+                return false;
+              };
+              check('Web Locks available',await a.evaluate(()=>!!navigator.locks));
+              check('first match lease',await hold(a,name,'shared'));
+              check('second tab shared match lease',await hold(b,name,'shared'));
+              check('exclusive activation deferred while match active',!(await tryLock(c,name,'exclusive')));
+              check('separate app scope independent',await tryLock(c,other,'exclusive'));
+              check('stage lease independent of active match',await hold(c,stage,'exclusive'));
+              check('concurrent stage refused',!(await tryLock(a,stage,'exclusive')));
+              await release(c,stage);
+              check('stage lease released',await eventually(a,stage,'exclusive'));
+              await release(a,name);
+              check('remaining match still prevents activation',!(await tryLock(c,name,'exclusive')));
+              await b.close();
+              check('tab close releases remaining match lease',await eventually(c,name,'exclusive'));
+              check('activation lease acquired',await hold(c,name,'exclusive'));
+              check('new match refused during activation',!(await tryLock(a,name,'shared')));
+              await release(c,name);
+              check('new match admitted after activation lease released',await eventually(a,name,'shared'));
+              console.log(JSON.stringify({browser:process.env.BROWSER,checks:results.length,results,scope:'synthetic platform semantics; no game integration or production activation'}));
+            } finally {await context?.close();await browser?.close();server.close();}
+          })().catch(()=>{console.error('multi-tab lock probe failed');server.close();process.exitCode=1;});
+          NODE
